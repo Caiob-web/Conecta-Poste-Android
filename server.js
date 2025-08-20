@@ -102,30 +102,49 @@ app.use((req, res, next) => {
 // Serve arquivos estáticos (public)
 app.use(express.static(path.join(__dirname, "public")));
 
-// Cache para /api/postes
+// Cache para /api/postes (opcional — pode ser removido se usar BBOX sempre)
 let cachePostes = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 10 * 60 * 1000;
 
-// GET /api/postes
+// GET /api/postes com filtro por bounds (BBox)
 app.get("/api/postes", async (req, res) => {
-  const now = Date.now();
-  if (cachePostes && now - cacheTimestamp < CACHE_TTL) {
-    return res.json(cachePostes);
+  const { minLat, maxLat, minLng, maxLng } = req.query;
+
+  // Se não tiver bounds, retorna erro
+  if (!minLat || !maxLat || !minLng || !maxLng) {
+    return res.status(400).json({ error: "Parâmetros de bounds inválidos" });
   }
+
   const sql = `
     SELECT d.id, d.nome_municipio, d.nome_bairro, d.nome_logradouro,
            d.material, d.altura, d.tensao_mecanica, d.coordenadas,
            ep.empresa
     FROM dados_poste d
     LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
-    WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>''  
+    WHERE d.coordenadas IS NOT NULL 
+      AND TRIM(d.coordenadas) <> ''
+      AND (CAST(split_part(d.coordenadas, ',', 1) AS double precision) BETWEEN $1 AND $2)
+      AND (CAST(split_part(d.coordenadas, ',', 2) AS double precision) BETWEEN $3 AND $4)
   `;
+
   try {
-    const { rows } = await pool.query(sql);
-    cachePostes = rows;
-    cacheTimestamp = now;
-    res.json(rows);
+    const { rows } = await pool.query(sql, [minLat, maxLat, minLng, maxLng]);
+
+    // Agrupa empresas por poste
+    const mapPostes = {};
+    rows.forEach(r => {
+      if (!mapPostes[r.id]) mapPostes[r.id] = { ...r, empresas: new Set() };
+      if (r.empresa) mapPostes[r.id].empresas.add(r.empresa);
+    });
+
+    // Transforma Set em array
+    const result = Object.values(mapPostes).map(r => ({
+      ...r,
+      empresas: [...r.empresas],
+    }));
+
+    res.json(result);
   } catch (err) {
     console.error("Erro em /api/postes:", err);
     res.status(500).json({ error: "Erro no servidor" });
@@ -162,7 +181,7 @@ app.post("/api/postes/report", async (req, res) => {
            ep.empresa
     FROM dados_poste d
     LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
-    WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>''
+    WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>'' 
       AND d.id::text = ANY($1)
   `;
   try {
