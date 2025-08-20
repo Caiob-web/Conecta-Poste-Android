@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login</title>
+
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      href="https://cdn.glitch.global/f333e829-c383-4385-9e81-43a47d865216/OIP.webp?v=1750376922471"
+      type="image/webp"
+    />
+
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Roboto", sans-serif;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        background: url("https://cdn.glitch.global/f333e829-c383-4385-9e81-43a47d865216/7668651-alta-voltagem-polo-e-linhas-de-transmissao-ao-por-do-sol-com-ceu-laranja-e-vermelho-e-nuvens-arquitetura-silhueta-eletricidade-piloes-durante-por-do-sol-energia-e-energia-conservacao-de-energia-gratis-f%20(1).jpeg?v=1750365689665")
+          no-repeat center/cover;
+      }
+      body::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.25);
+        z-index: 0;
+      }
+
+      /* Logo EDP no canto superior */
+      .edp-logo-top {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 1;
+        width: 120px;
+        opacity: 0.9;
+        transition: opacity 0.3s;
+      }
+      .edp-logo-top:hover {
+        opacity: 1;
+      }
+
+      .login-box {
+        position: relative;
+        z-index: 1;
+        width: 340px;
+        padding: 40px 32px;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        text-align: center;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.95);
+      }
+      /* Marca d’água */
+      .login-box::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 200px;
+        height: 200px;
+        background: url("https://cdn.glitch.global/f333e829-c383-4385-9e81-43a47d865216/edp%20logo.avif?v=1750365835690")
+          no-repeat center/contain;
+        opacity: 0.1;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+
+      .login-box h2 {
+        margin-bottom: 24px;
+        font-weight: 300;
+        color: #333;
+      }
+      .login-box input[type="text"],
+      .login-box input[type="password"] {
+        width: 100%;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+        transition: border-color 0.3s, box-shadow 0.3s;
+        position: relative;
+        z-index: 1;
+      }
+      .login-box input:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 6px rgba(0, 123, 255, 0.3);
+        outline: none;
+      }
+      .login-box label {
+        display: flex;
+        align-items: center;
+        font-size: 14px;
+        color: #555;
+        margin-bottom: 16px;
+        text-align: left;
+        position: relative;
+        z-index: 1;
+      }
+      .login-box label input {
+        margin-right: 8px;
+        transform: scale(1.1);
+      }
+      .login-box a {
+        color: #007bff;
+        text-decoration: none;
+        position: relative;
+        z-index: 1;
+      }
+      .login-box a:hover {
+        text-decoration: underline;
+      }
+      .login-box button {
+        width: 100%;
+        padding: 12px;
+        background: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.3s;
+        position: relative;
+        z-index: 1;
+      }
+      .login-box button:disabled {
+        background: #aaa;
+        cursor: not-allowed;
+      }
+      .login-box button:hover:not(:disabled) {
+        background: #0056b3;
+      }
+      #error {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #d9534f;
+        display: none;
+        position: relative;
+        z-index: 1;
+      }
+      .links {
+        margin-top: 16px;
+        font-size: 14px;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* Rodapé fixo com faixa preta */
+      .footer-text {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        text-align: center;
+        padding: 8px 0;
+        font-size: 12px;
+        z-index: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <img
+      src="https://cdn.glitch.global/f333e829-c383-4385-9e81-43a47d865216/edp%20logo.avif?v=1750365835690"
+      alt="EDP Logo"
+      class="edp-logo-top"
+    />
+
+    <div class="login-box">
+      <h2>Entrar</h2>
+      <form id="loginForm">
+        <input
+          name="username"
+          type="text"
+          placeholder="Usuário"
+          required
+          autocomplete="username"
+        />
+        <input
+          name="password"
+          type="password"
+          placeholder="Senha"
+          required
+          autocomplete="current-password"
+        />
+        <label>
+          <input type="checkbox" id="lgpdCheck" />
+          Aceito a
+          <a href="/lgpd/privacy.html" target="_blank"
+            >Política de Privacidade</a
+          >
+        </label>
+        <button type="submit" id="btnLogin" disabled>Login</button>
+      </form>
+      <div id="error">Credenciais inválidas</div>
+      <div class="links">
+        Ainda não tem conta? <a href="/register.html">Registre-se</a>
+      </div>
+    </div>
+
+    <div class="footer-text">
+      Desenvolvido por Caio Henrique Faria Gouveia - Setor Compartilhantes - EDP
+      2025
+    </div>
+
+    <script>
+      const form = document.getElementById("loginForm");
+      const btnLogin = document.getElementById("btnLogin");
+      const lgpdCheck = document.getElementById("lgpdCheck");
+      const errorDiv = document.getElementById("error");
+
+      lgpdCheck.addEventListener("change", () => {
+        btnLogin.disabled = !lgpdCheck.checked;
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errorDiv.style.display = "none";
+
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: form.username.value.trim(),
+            password: form.password.value,
+          }),
+        });
+
+        if (res.ok) {
+          window.location.href = "/";
+        } else {
+          errorDiv.style.display = "block";
+        }
+      });
+    </script>
+  </body>
+</html>

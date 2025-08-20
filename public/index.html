@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mapa de Postes</title>
+
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      href="https://cdn.glitch.global/f333e829-c383-4385-9e81-43a47d865216/ChatGPT%20Image%2019%20de%20jun.%20de%202025%2C%2021_12_44.png?v=1750378383582"
+      type="image/png"
+      sizes="64x64"
+    />
+
+    <!-- Leaflet & MarkerCluster -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css"
+    />
+
+    <!-- FontAwesome para ícones -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+
+    <style>
+      /* --- RESET & MAPA --- */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+      }
+      #map {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* --- PAINEL DE BUSCA --- */
+      .painel-busca {
+        position: absolute;
+        top: 80px;
+        right: 20px;
+        width: 280px;
+        background: #fff;
+        border-left: 4px solid #0055a5;
+        border-radius: 6px;
+        padding: 16px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+        font-family: "Segoe UI", sans-serif;
+        z-index: 1000;
+      }
+      .painel-busca h3 {
+        margin: 0 0 12px;
+        font-weight: 600;
+        color: #0055a5;
+        font-size: 16px;
+      }
+      .painel-busca .field {
+        position: relative;
+        margin-bottom: 12px;
+      }
+      .painel-busca .field input,
+      .painel-busca .field textarea {
+        width: 100%;
+        padding: 8px 32px 8px 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      .painel-busca .field input:focus,
+      .painel-busca .field textarea:focus {
+        outline: none;
+        border-color: #0055a5;
+      }
+      .painel-busca .field .fa {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #888;
+        font-size: 14px;
+      }
+
+      /* ações em 3 colunas */
+      .painel-busca .actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .painel-busca .actions button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 0;
+        background: #0055a5;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .painel-busca .actions button:hover {
+        background: #003f7d;
+      }
+      .painel-busca .actions button .fa {
+        margin-right: 6px;
+      }
+
+      /* --- LEGENDA --- */
+      .legenda {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 12px;
+        border-radius: 6px;
+        font-family: "Segoe UI", sans-serif;
+        font-size: 13px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .legenda-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .legenda-item .bolinha {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+        border: 1px solid #888;
+      }
+
+      /* --- BOTOES DE TOPO --- */
+      .botao-topo {
+        position: absolute;
+        right: 20px;
+        width: 38px;
+        height: 38px;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s;
+        z-index: 1001;
+      }
+      .botao-topo:hover {
+        background: #f5f5f5;
+      }
+      #togglePainel {
+        top: 20px;
+      }
+      #localizacaoUsuario {
+        top: 68px;
+      }
+      #logoutBtn {
+        top: 116px;
+      }
+
+      /* --- WIDGET CLIMA, OVERLAY, SPINNER --- */
+      #widget-clima {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 6px;
+        padding: 12px 16px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        font-family: "Segoe UI", sans-serif;
+        font-size: 14px;
+        color: #333;
+        z-index: 2000;
+        width: 200px;
+      }
+      #widget-clima #hora {
+        font-weight: 600;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+      }
+      #widget-clima #hora .fa-clock {
+        margin-right: 6px;
+        color: #0055a5;
+      }
+      #widget-clima #tempo {
+        display: flex;
+        align-items: center;
+      }
+      #widget-clima #tempo img {
+        width: 32px;
+        height: 32px;
+        margin-right: 8px;
+      }
+      .overlay-loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        z-index: 3000;
+      }
+      .spinner {
+        border: 6px solid #ccc;
+        border-top: 6px solid #0055a5;
+        border-radius: 50%;
+        width: 48px;
+        height: 48px;
+        animation: girar 1s linear infinite;
+      }
+      .texto-loading {
+        margin-top: 12px;
+        font-family: "Segoe UI", sans-serif;
+        color: #0055a5;
+      }
+      @keyframes girar {
+        0% {
+          transform: rotate(0);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Botões de topo -->
+    <div id="togglePainel" class="botao-topo" title="Esconder/Mostrar painel">
+      <i class="fa fa-sliders"></i>
+    </div>
+    <div id="localizacaoUsuario" class="botao-topo" title="Minha localização">
+      <i class="fa fa-location-dot"></i>
+    </div>
+    <div id="logoutBtn" class="botao-topo" title="Logout">
+      <i class="fa fa-sign-out-alt"></i>
+    </div>
+
+    <!-- Painel de busca -->
+    <div class="painel-busca" id="painelBusca">
+      <h3>Buscar Postes</h3>
+
+      <div class="field">
+        <input type="text" id="busca-id" placeholder="ID do Poste…" />
+        <i class="fa fa-hashtag"></i>
+      </div>
+
+      <div class="field">
+        <input type="text" id="busca-coord" placeholder="Lat, Lon…" />
+        <i class="fa fa-map-marker-alt"></i>
+      </div>
+
+      <div class="field">
+        <input
+          type="text"
+          id="busca-municipio"
+          placeholder="Município…"
+          list="lista-municipios"
+        />
+        <i class="fa fa-city"></i>
+      </div>
+      <datalist id="lista-municipios"></datalist>
+
+      <div class="field">
+        <input
+          type="text"
+          id="busca-bairro"
+          placeholder="Bairro…"
+          list="lista-bairros"
+        />
+        <i class="fa fa-map-marker-alt"></i>
+      </div>
+      <datalist id="lista-bairros"></datalist>
+
+      <div class="field">
+        <input
+          type="text"
+          id="busca-logradouro"
+          placeholder="Logradouro…"
+          list="lista-logradouros"
+        />
+        <i class="fa fa-road"></i>
+      </div>
+      <datalist id="lista-logradouros"></datalist>
+
+      <div class="field">
+        <input
+          type="text"
+          id="busca-empresa"
+          placeholder="Empresa…"
+          list="lista-empresas"
+        />
+        <i class="fa fa-building"></i>
+      </div>
+      <datalist id="lista-empresas"></datalist>
+
+      <div class="field">
+        <textarea
+          id="ids-multiplos"
+          rows="2"
+          placeholder="Vários IDs…"
+        ></textarea>
+        <i class="fa fa-list"></i>
+      </div>
+
+      <div class="actions">
+        <button onclick="buscarID()"><i class="fa fa-search"></i>Buscar</button>
+        <button onclick="buscarCoordenada()">
+          <i class="fa fa-map-marker-alt"></i>Coordenada
+        </button>
+        <button onclick="filtrarLocal()">
+          <i class="fa fa-filter"></i>Filtrar
+        </button>
+        <button onclick="consultarIDsEmMassa()">
+          <i class="fa fa-chart-line"></i>Verificar
+        </button>
+        <button onclick="resetarMapa()">
+          <i class="fa fa-undo"></i>Resetar
+        </button>
+        <button onclick="gerarPDFComMapa()">
+          <i class="fa fa-file-pdf"></i>PDF
+        </button>
+        <button id="btnGerarExcel">
+          <i class="fa fa-file-excel"></i>Excel
+        </button>
+        <button id="btnCenso"><i class="fa fa-camera"></i>Censo</button>
+      </div>
+    </div>
+
+    <!-- Legenda -->
+    <div class="legenda">
+      <div class="legenda-item">
+        <div class="bolinha" style="background: yellow"></div>
+        Poste intermediário
+      </div>
+      <div class="legenda-item">
+        <div class="bolinha" style="background: green"></div>
+        Até 5 empresas
+      </div>
+      <div class="legenda-item">
+        <div class="bolinha" style="background: red"></div>
+        Mais de 5 empresas
+      </div>
+    </div>
+
+    <!-- Mapa -->
+    <div id="map"></div>
+
+    <!-- Widget de hora & clima -->
+    <div id="widget-clima">
+      <div id="hora"><i class="fa fa-clock"></i><span>--:--</span></div>
+      <div id="tempo"><img src="" alt="" /><span>Carregando...</span></div>
+    </div>
+
+    <!-- Spinner de carregamento -->
+    <div id="carregando" class="overlay-loading" style="display: flex">
+      <div class="spinner"></div>
+      <div class="texto-loading">Carregando postes…</div>
+    </div>
+
+    <!-- JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    <!-- Inserido: SheetJS para Excel no cliente -->
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="script.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
+    <script>
+      // Logout
+      document
+        .getElementById("logoutBtn")
+        .addEventListener("click", async () => {
+          await fetch("/logout", { method: "POST" });
+          window.location.href = "/login.html";
+        });
+    </script>
+    <!-- Inserido: função de geração de Excel no cliente -->
+    <script>
+      function gerarExcelCliente(filtroIds) {
+        const dadosParaExcel = todosPostes
+          .filter((p) => filtroIds.includes(p.id))
+          .map((p) => ({
+            "ID POSTE": p.id,
+            Município: p.nome_municipio,
+            Bairro: p.nome_bairro,
+            Logradouro: p.nome_logradouro,
+            Empresas: p.empresas.join(", "),
+            Coordenadas: p.coordenadas,
+          }));
+
+        const ws = XLSX.utils.json_to_sheet(dadosParaExcel);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Filtro");
+        XLSX.writeFile(wb, "relatorio_filtrado.xlsx");
+      }
+
+      const _origFiltrarLocal = filtrarLocal;
+      filtrarLocal = function () {
+        _origFiltrarLocal();
+        const mun = document.getElementById("busca-municipio").value.trim().toLowerCase();
+        const bai = document.getElementById("busca-bairro").value.trim().toLowerCase();
+        const log = document.getElementById("busca-logradouro").value.trim().toLowerCase();
+        const emp = document.getElementById("busca-empresa").value.trim().toLowerCase();
+
+        const filtro = todosPostes.filter((p) =>
+          (!mun || p.nome_municipio.toLowerCase() === mun) &&
+          (!bai || p.nome_bairro.toLowerCase() === bai) &&
+          (!log || p.nome_logradouro.toLowerCase() === log) &&
+          (!emp || p.empresas.join(", ").toLowerCase().includes(emp))
+        );
+
+        if (filtro.length) {
+          const ids = filtro.map((p) => p.id);
+          gerarExcelCliente(ids);
+        }
+      };
+    </script>
+  </body>
+</html>
