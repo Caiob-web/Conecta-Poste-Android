@@ -16,7 +16,7 @@ app.use(express.urlencoded({ limit: "1gb", extended: true }));
 // Habilita CORS
 app.use(cors());
 
-// Sessão em cookie (expira ao fechar navegador)
+// Sessão em cookie
 app.use(
   session({
     secret: "uma-chave-secreta",
@@ -26,7 +26,7 @@ app.use(
   })
 );
 
-// Conexão com o banco (Neon ep-broad-smoke)
+// Conexão com o banco Neon
 const pool = new Pool({
   connectionString:
     "postgresql://neondb_owner:npg_CIxXZ6mF9Oud@ep-broad-smoke-a8r82sdg-pooler.eastus2.azure.neon.tech/neondb?sslmode=require&channel_binding=require",
@@ -82,7 +82,7 @@ app.post("/logout", (req, res) => {
   });
 });
 
-// Middleware de proteção de rotas
+// Middleware de proteção
 app.use((req, res, next) => {
   const openPaths = ["/login", "/register", "/login.html", "/register.html", "/lgpd/"];
   if (
@@ -99,52 +99,33 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve arquivos estáticos (public)
+// Static
 app.use(express.static(path.join(__dirname, "public")));
 
-// Cache para /api/postes (opcional — pode ser removido se usar BBOX sempre)
-let cachePostes = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 10 * 60 * 1000;
-
-// GET /api/postes com filtro por bounds (BBox)
+// GET /api/postes com paginação
 app.get("/api/postes", async (req, res) => {
-  const { minLat, maxLat, minLng, maxLng } = req.query;
-
-  // Se não tiver bounds, retorna erro
-  if (!minLat || !maxLat || !minLng || !maxLng) {
-    return res.status(400).json({ error: "Parâmetros de bounds inválidos" });
-  }
-
-  const sql = `
-    SELECT d.id, d.nome_municipio, d.nome_bairro, d.nome_logradouro,
-           d.material, d.altura, d.tensao_mecanica, d.coordenadas,
-           ep.empresa
-    FROM dados_poste d
-    LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
-    WHERE d.coordenadas IS NOT NULL 
-      AND TRIM(d.coordenadas) <> ''
-      AND (CAST(split_part(d.coordenadas, ',', 1) AS double precision) BETWEEN $1 AND $2)
-      AND (CAST(split_part(d.coordenadas, ',', 2) AS double precision) BETWEEN $3 AND $4)
-  `;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 500;
+  const offset = (page - 1) * limit;
 
   try {
-    const { rows } = await pool.query(sql, [minLat, maxLat, minLng, maxLng]);
+    const { rows } = await pool.query(
+      `
+      SELECT d.id, d.nome_municipio, d.nome_bairro, d.nome_logradouro,
+             d.material, d.altura, d.tensao_mecanica, d.coordenadas,
+             ep.empresa
+      FROM dados_poste d
+      LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
+      WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>''  
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
 
-    // Agrupa empresas por poste
-    const mapPostes = {};
-    rows.forEach(r => {
-      if (!mapPostes[r.id]) mapPostes[r.id] = { ...r, empresas: new Set() };
-      if (r.empresa) mapPostes[r.id].empresas.add(r.empresa);
-    });
+    const totalRes = await pool.query("SELECT COUNT(*) FROM dados_poste WHERE coordenadas IS NOT NULL AND TRIM(coordenadas)<>''");
+    const total = parseInt(totalRes.rows[0].count, 10);
 
-    // Transforma Set em array
-    const result = Object.values(mapPostes).map(r => ({
-      ...r,
-      empresas: [...r.empresas],
-    }));
-
-    res.json(result);
+    res.json({ data: rows, total });
   } catch (err) {
     console.error("Erro em /api/postes:", err);
     res.status(500).json({ error: "Erro no servidor" });
@@ -166,7 +147,7 @@ app.get("/api/censo", async (req, res) => {
   }
 });
 
-// POST /api/postes/report
+// Relatório em Excel
 app.post("/api/postes/report", async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -175,16 +156,16 @@ app.post("/api/postes/report", async (req, res) => {
   const clean = ids.map(x => String(x).trim()).filter(Boolean);
   if (!clean.length) return res.status(400).json({ error: "Nenhum ID válido" });
 
-  const sql = `
-    SELECT d.id, d.nome_municipio, d.nome_bairro, d.nome_logradouro,
-           d.material, d.altura, d.tensao_mecanica, d.coordenadas,
-           ep.empresa
-    FROM dados_poste d
-    LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
-    WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>'' 
-      AND d.id::text = ANY($1)
-  `;
   try {
+    const sql = `
+      SELECT d.id, d.nome_municipio, d.nome_bairro, d.nome_logradouro,
+             d.material, d.altura, d.tensao_mecanica, d.coordenadas,
+             ep.empresa
+      FROM dados_poste d
+      LEFT JOIN empresa_poste ep ON d.id::text = ep.id_poste
+      WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas)<>''
+        AND d.id::text = ANY($1)
+    `;
     const { rows } = await pool.query(sql, [clean]);
     if (!rows.length) return res.status(404).json({ error: "Nenhum poste encontrado" });
 
@@ -222,14 +203,8 @@ app.post("/api/postes/report", async (req, res) => {
       });
     });
 
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      "attachment; filename=relatorio_postes.xlsx"
-    );
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=relatorio_postes.xlsx");
     await wb.xlsx.write(res);
     res.end();
   } catch (err) {
@@ -243,5 +218,5 @@ app.use((req, res) => {
   res.status(404).send("Rota não encontrada");
 });
 
-// Inicia o servidor
+// Start
 app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
