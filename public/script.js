@@ -1,145 +1,58 @@
-// ============================================================
-// script.js — BBOX + Zoom mínimo + Canvas + Lotes
-// ============================================================
+const map = L.map("map").setView([-23.18, -45.88], 13);
 
-const ZOOM_MIN = 12;          // não carrega abaixo disso
-const PAGE_LIMIT = 20000;     // 20k por requisição
-const RENDER_BATCH = 1000;    // adiciona no mapa em lotes de 1000
-let isLoading = false;
-let lastLoadToken = 0;
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+}).addTo(map);
 
-// 1) Mapa (Canvas renderer melhora muito no mobile)
-const map = L.map("map", { preferCanvas: true }).setView([-23.2237, -45.9009], 13);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
-const markers = L.markerClusterGroup({
-  spiderfyOnMaxZoom: true,
-  showCoverageOnHover: false,
-  zoomToBoundsOnClick: false,
-  maxClusterRadius: 60,
-  disableClusteringAtZoom: 17,
-});
-map.addLayer(markers);
+const layerGroup = L.layerGroup().addTo(map);
 
-// 2) Indicador de status
-const statusDiv = document.createElement("div");
-Object.assign(statusDiv.style, {
-  position: "absolute",
-  top: "12px",
-  left: "50%",
-  transform: "translateX(-50%)",
-  background: "rgba(0,0,0,.75)",
-  color: "#fff",
-  padding: "6px 12px",
-  borderRadius: "8px",
-  font: "14px system-ui, Arial",
-  zIndex: "9999",
-});
-document.body.appendChild(statusDiv);
-function setStatus(t) { statusDiv.textContent = t; statusDiv.style.display = t ? "block" : "none"; }
+const loadingDiv = document.getElementById("loading");
+const statusText = document.getElementById("status");
 
-// 3) Util
-function boundsParams() {
-  const b = map.getBounds();
-  return new URLSearchParams({
-    minLat: b.getSouth(),
-    maxLat: b.getNorth(),
-    minLng: b.getWest(),
-    maxLng: b.getEast(),
-  }).toString();
-}
-async function fetchJsonGuard(url) {
-  const res = await fetch(url, { credentials: "same-origin" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const ct = res.headers.get("content-type") || "";
-  const txt = await res.text();
-  if (!ct.includes("application/json")) throw new Error(`Resposta não-JSON: ${txt.slice(0,120)}…`);
-  return JSON.parse(txt);
-}
+// função para buscar postes visíveis no mapa
+async function fetchPostes() {
+  loadingDiv.style.display = "block";
+  statusText.innerText = "Carregando postes visíveis...";
 
-function addMarkersBatch(items, start = 0) {
-  const end = Math.min(start + RENDER_BATCH, items.length);
-  for (let i = start; i < end; i++) {
-    const p = items[i];
-    const lat = p.latitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[0]) : null);
-    const lng = p.longitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[1]) : null);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-    const m = L.circleMarker([lat, lng], {
-      radius: 6, fillColor: "green", color: "#fff", weight: 2, fillOpacity: 0.8,
-    }).bindPopup(`
-      <b>ID:</b> ${p.id}<br>
-      <b>Coord:</b> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
-      <b>Município:</b> ${p.nome_municipio ?? ""}<br>
-      <b>Bairro:</b> ${p.nome_bairro ?? ""}<br>
-      <b>Logradouro:</b> ${p.nome_logradouro ?? ""}<br>
-      <b>Material:</b> ${p.material ?? ""}<br>
-      <b>Altura:</b> ${p.altura ?? ""}<br>
-      <b>Tensão:</b> ${p.tensao_mecanica ?? ""}
-    `);
-    markers.addLayer(m);
-  }
-  if (end < items.length) {
-    // joga a continuação para o próximo frame
-    requestIdleCallback
-      ? requestIdleCallback(() => addMarkersBatch(items, end))
-      : setTimeout(() => addMarkersBatch(items, end), 0);
-  }
-}
-
-// 4) Carrega o que está visível (BBOX + paginação)
-async function loadVisible() {
-  if (isLoading) return;
-  if (map.getZoom() < ZOOM_MIN) {
-    markers.clearLayers();
-    setStatus(`Aproxime o zoom (≥ ${ZOOM_MIN}) para carregar os postes.`);
-    return;
-  }
-
-  isLoading = true;
-  const token = ++lastLoadToken; // cancela cargas antigas
-  markers.clearLayers();
-  setStatus("Carregando…");
-
-  const paramsBase = boundsParams();
-  let page = 1, total = null, loaded = 0;
+  const bounds = map.getBounds();
+  const north = bounds.getNorth();
+  const south = bounds.getSouth();
+  const east = bounds.getEast();
+  const west = bounds.getWest();
 
   try {
-    while (true) {
-      // se outra carga começou, aborta esta
-      if (token !== lastLoadToken) break;
+    const res = await fetch(
+      `/api/postes?north=${north}&south=${south}&east=${east}&west=${west}&limit=5000`
+    );
+    const json = await res.json();
 
-      const url = `/api/postes?${paramsBase}&page=${page}&limit=${PAGE_LIMIT}`;
-      const data = await fetchJsonGuard(url);
-      if (!data || !Array.isArray(data.data)) throw new Error("Estrutura inesperada da resposta");
+    layerGroup.clearLayers();
+    json.data.forEach((p) => {
+      if (p.latitude && p.longitude) {
+        L.circleMarker([p.latitude, p.longitude], {
+          radius: 4,
+          color: "#007bff",
+          fillOpacity: 0.7,
+        }).bindPopup(`
+          <b>ID:</b> ${p.id}<br>
+          <b>Município:</b> ${p.municipio}<br>
+          <b>Bairro:</b> ${p.bairro}<br>
+          <b>Rua:</b> ${p.logradouro}
+        `).addTo(layerGroup);
+      }
+    });
 
-      if (total == null) total = Number(data.total) || 0;
-      loaded += data.data.length;
-
-      setStatus(`Carregando… ${loaded}/${total}`);
-
-      addMarkersBatch(data.data);
-
-      if (loaded >= total || data.data.length === 0) break;
-
-      // pequena pausa para não travar
-      await new Promise(r => setTimeout(r, 100));
-      page++;
-    }
-
-    setStatus(total ? `✅ ${loaded} de ${total} carregados` : `✅ ${loaded} carregados`);
-    // some o banner depois de 2s
-    setTimeout(() => { if (token === lastLoadToken) setStatus(""); }, 2000);
-  } catch (e) {
-    console.error("Erro ao carregar BBOX:", e);
-    setStatus("❌ Erro ao carregar postes");
+    statusText.innerText = `Postes carregados: ${json.data.length}`;
+  } catch (err) {
+    console.error(err);
+    statusText.innerText = "Erro ao carregar postes.";
   } finally {
-    isLoading = false;
+    setTimeout(() => (loadingDiv.style.display = "none"), 1500);
   }
 }
 
-// 5) Eventos do mapa
-map.on("moveend", loadVisible);
-map.on("zoomend", loadVisible);
+// busca inicial
+fetchPostes();
 
-// 6) Primeira carga
-loadVisible();
+// recarregar ao mover ou dar zoom
+map.on("moveend", fetchPostes);
