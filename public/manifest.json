@@ -1,12 +1,25 @@
 {
-  "name": "Conecta Poste",
-  "short_name": "ConectaPoste",
-  "start_url": "/",
+  "id": "/",
+  "name": "Mapa de Postes (Visualização)",
+  "short_name": "Postes",
+  "description": "App PWA de visualização de postes com BBOX e cache offline.",
+  "lang": "pt-BR",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0055a5",
   "background_color": "#ffffff",
-  "theme_color": "#0a0a0a",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
-  ]
+    { "src": "/icons/icon-192.png",           "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192-maskable.png",  "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512.png",           "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png",  "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Abrir mapa", "short_name": "Mapa", "description": "Abrir o mapa na posição padrão", "url": "/" },
+    { "name": "Minha localização", "short_name": "Local", "description": "Centralizar no usuário", "url": "/?go=me" }
+  ],
+  "categories": ["maps", "productivity", "utilities"],
+  "prefer_related_applications": false
 }
