@@ -1,7 +1,5 @@
-// api/postes.js
 import { Pool } from "pg";
 
-// Reutiliza a conexão entre invocações
 let pool;
 function getPool() {
   if (!pool) {
@@ -14,7 +12,6 @@ function getPool() {
 }
 
 export default async function handler(req, res) {
-  // Apenas GET
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
@@ -28,33 +25,40 @@ export default async function handler(req, res) {
     const db = getPool();
 
     const totalResult = await db.query(
-      "SELECT COUNT(*) FROM dados_poste WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+      `SELECT COUNT(*) AS c 
+         FROM dados_poste 
+        WHERE coordenadas IS NOT NULL 
+          AND TRIM(coordenadas) <> ''`
     );
-    const total = parseInt(totalResult.rows[0].count, 10);
+    const total = parseInt(totalResult.rows[0].c, 10);
 
     const result = await db.query(
-      `SELECT id,
-              nome_municipio,
-              nome_bairro,
-              nome_logradouro,
-              empresa,
-              latitude,
-              longitude,
-              material,
-              altura,
-              tensao_mecanica
-       FROM dados_poste
-       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-       ORDER BY id
-       LIMIT $1 OFFSET $2`,
+      `SELECT
+          d.id,
+          d.nome_municipio,
+          d.nome_bairro,
+          d.nome_logradouro,
+          d.material,
+          d.altura,
+          d.tensao_mecanica,
+          d.coordenadas,
+          CAST(split_part(d.coordenadas, ',', 1) AS double precision) AS latitude,
+          CAST(split_part(d.coordenadas, ',', 2) AS double precision) AS longitude,
+          ep.empresa
+       FROM dados_poste d
+       LEFT JOIN empresa_poste ep
+              ON d.id::text = ep.id_poste
+      WHERE d.coordenadas IS NOT NULL 
+        AND TRIM(d.coordenadas) <> ''
+      ORDER BY d.id
+      LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
-    // Cache na edge do Vercel (opcional)
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-    res.status(200).json({ total, data: result.rows });
+    return res.status(200).json({ total, data: result.rows });
   } catch (err) {
     console.error("Erro em /api/postes:", err);
-    res.status(500).json({ error: "Erro ao buscar postes" });
+    return res.status(500).json({ error: "Erro ao buscar postes" });
   }
 }
