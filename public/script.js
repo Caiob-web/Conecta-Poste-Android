@@ -1,20 +1,21 @@
 // ===== script.js — Versão Visualização (mobile/tablet) =====
 // - BBOX com paginação
-// - Overlay só no 1º load (com atraso)
+// - Overlay só no 1º load (e com atraso)
 // - Sem overlay em pan/zoom
 // - Debounce de eventos
 // - Timeout de fetch
 // - Limpa marcadores apenas quando chega o 1º lote novo
+// - Cores por qtd de empresas: <4 = verde | 4–5 = amarelo | >5 = vermelho
 
 /* ---------------------- Configuração ---------------------- */
-const ZOOM_MIN = 12;          // não carrega abaixo disso (ajuste para 13/14 se quiser menos dados)
-const PAGE_LIMIT = 20000;     // 20k por requisição
+const ZOOM_MIN = 12;                // não carrega abaixo disso (suba p/ 13/14 se quiser menos dados)
+const PAGE_LIMIT = 20000;           // 20k por requisição
 const FETCH_TIMEOUT_MS = 12000;
 
 /* UX de carregamento */
-const DEBOUNCE_MS = 400;      // reduz chamadas consecutivas no mobile
-const FIRST_LOAD_OVERLAY = true;     // overlay só no 1º carregamento
-const SLOW_FIRST_LOAD_MS = 700;      // mostra overlay do 1º load apenas se demorar mais que isso
+const DEBOUNCE_MS = 400;            // reduz chamadas consecutivas no mobile
+const FIRST_LOAD_OVERLAY = true;    // overlay só no 1º carregamento
+const SLOW_FIRST_LOAD_MS = 700;     // mostra overlay do 1º load apenas se demorar mais que isso
 
 /* ---------------------- Estado global ---------------------- */
 let isLoading = false;
@@ -98,6 +99,15 @@ function parseLatLng(p) {
   return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
 }
 
+/* ----------- Cores por quantidade de empresas (regras) ----------- */
+function corPorEmpresas(qtd) {
+  // verde: <4 ; amarelo: 4–5 ; vermelho: >5
+  if (Number(qtd) > 5) return "red";
+  if (Number(qtd) >= 4) return "yellow";
+  return "green";
+}
+
+/* ---------------------- Render em lotes ---------------------- */
 function addBatch(items, start = 0, batch = 1200) {
   const end = Math.min(start + batch, items.length);
   const toAdd = [];
@@ -106,12 +116,16 @@ function addBatch(items, start = 0, batch = 1200) {
     const ll = parseLatLng(p);
     if (!ll) continue;
 
+    const qtd = Number(p.qtd_empresas ?? 0);
+    const fill = corPorEmpresas(qtd);
+    const empresasTxt = Array.isArray(p.empresas) ? p.empresas.join(", ") : "";
+
     const marker = L.circleMarker(ll, {
       radius: 6,
-      fillColor: "green",
+      fillColor: fill,
       color: "#fff",
       weight: 2,
-      fillOpacity: 0.8,
+      fillOpacity: 0.9,
     }).bindPopup(`
       <b>ID:</b> ${p.id ?? ""}<br>
       <b>Coord:</b> ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}<br>
@@ -120,7 +134,8 @@ function addBatch(items, start = 0, batch = 1200) {
       <b>Logradouro:</b> ${p.nome_logradouro ?? ""}<br>
       <b>Material:</b> ${p.material ?? ""}<br>
       <b>Altura:</b> ${p.altura ?? ""}<br>
-      <b>Tensão:</b> ${p.tensao_mecanica ?? ""}
+      <b>Tensão:</b> ${p.tensao_mecanica ?? ""}<br>
+      <b>Empresas:</b> ${empresasTxt || "—"} ${qtd ? `(${qtd})` : "(0)"}
     `);
     toAdd.push(marker);
   }
@@ -134,7 +149,7 @@ function addBatch(items, start = 0, batch = 1200) {
 async function loadVisible() {
   if (isLoading) return;
 
-  // Mensagem somente quando o zoom está baixo
+  // Aviso apenas quando o zoom está baixo
   if (map.getZoom() < ZOOM_MIN) {
     markers.clearLayers();
     setLoading(true, `Aproxime o zoom (≥ ${ZOOM_MIN}) para carregar os postes.`);
@@ -174,7 +189,6 @@ async function loadVisible() {
       const got = items.length;
 
       if (total == null) total = Number(payload?.total ?? got ?? 0);
-
       if (!got) break;
 
       // chegou conteúdo novo: limpamos uma única vez
@@ -186,10 +200,8 @@ async function loadVisible() {
       addBatch(items);
       loaded += got;
 
-      // sem overlay de progresso (evitar “telão” a cada pan)
       if (total > 0 && loaded >= total) break;
-
-      await new Promise((r) => setTimeout(r, 60)); // respiro pro main thread
+      await new Promise((r) => setTimeout(r, 60)); // respiro
       page++;
     }
 
@@ -238,10 +250,8 @@ document.getElementById("localizacaoUsuario")?.addEventListener("click", () => {
 });
 
 /* ---------------------- Stubs (versão visualização) ---------------------- */
-// Evitam erros se alguém clicar nos botões desta versão
 function toast(msg) {
   try {
-    // micro-toast simples
     const el = document.createElement("div");
     el.textContent = msg;
     Object.assign(el.style, {
