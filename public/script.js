@@ -1,9 +1,15 @@
 // ============================================================
-//  script.js  —  Carregamento em blocos de 20k + Cluster + Progresso
+// script.js — BBOX + Zoom mínimo + Canvas + Lotes
 // ============================================================
 
-// 1) Mapa Leaflet
-const map = L.map("map").setView([-23.2237, -45.9009], 13);
+const ZOOM_MIN = 12;          // não carrega abaixo disso
+const PAGE_LIMIT = 20000;     // 20k por requisição
+const RENDER_BATCH = 1000;    // adiciona no mapa em lotes de 1000
+let isLoading = false;
+let lastLoadToken = 0;
+
+// 1) Mapa (Canvas renderer melhora muito no mobile)
+const map = L.map("map", { preferCanvas: true }).setView([-23.2237, -45.9009], 13);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
 const markers = L.markerClusterGroup({
   spiderfyOnMaxZoom: true,
@@ -12,12 +18,11 @@ const markers = L.markerClusterGroup({
   maxClusterRadius: 60,
   disableClusteringAtZoom: 17,
 });
-markers.on("clusterclick", (e) => e.layer.spiderfy());
 map.addLayer(markers);
 
-// 2) Indicador de progresso (criado dinamicamente)
-const progressDiv = document.createElement("div");
-Object.assign(progressDiv.style, {
+// 2) Indicador de status
+const statusDiv = document.createElement("div");
+Object.assign(statusDiv.style, {
   position: "absolute",
   top: "12px",
   left: "50%",
@@ -29,104 +34,112 @@ Object.assign(progressDiv.style, {
   font: "14px system-ui, Arial",
   zIndex: "9999",
 });
-progressDiv.textContent = "Carregando postes…";
-document.body.appendChild(progressDiv);
+document.body.appendChild(statusDiv);
+function setStatus(t) { statusDiv.textContent = t; statusDiv.style.display = t ? "block" : "none"; }
 
-// 3) Helpers
-function addMarkers(batch) {
-  batch.forEach((p) => {
+// 3) Util
+function boundsParams() {
+  const b = map.getBounds();
+  return new URLSearchParams({
+    minLat: b.getSouth(),
+    maxLat: b.getNorth(),
+    minLng: b.getWest(),
+    maxLng: b.getEast(),
+  }).toString();
+}
+async function fetchJsonGuard(url) {
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ct = res.headers.get("content-type") || "";
+  const txt = await res.text();
+  if (!ct.includes("application/json")) throw new Error(`Resposta não-JSON: ${txt.slice(0,120)}…`);
+  return JSON.parse(txt);
+}
+
+function addMarkersBatch(items, start = 0) {
+  const end = Math.min(start + RENDER_BATCH, items.length);
+  for (let i = start; i < end; i++) {
+    const p = items[i];
     const lat = p.latitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[0]) : null);
     const lng = p.longitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[1]) : null);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-    const cor = (Array.isArray(p.empresas) ? p.empresas.length : (p.empresa ? 1 : 0)) >= 5 ? "red" : "green";
-    const marker = L.circleMarker([lat, lng], {
-      radius: 6,
-      fillColor: cor,
-      color: "#fff",
-      weight: 2,
-      fillOpacity: 0.8,
+    const m = L.circleMarker([lat, lng], {
+      radius: 6, fillColor: "green", color: "#fff", weight: 2, fillOpacity: 0.8,
     }).bindPopup(`
       <b>ID:</b> ${p.id}<br>
       <b>Coord:</b> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
       <b>Município:</b> ${p.nome_municipio ?? ""}<br>
       <b>Bairro:</b> ${p.nome_bairro ?? ""}<br>
       <b>Logradouro:</b> ${p.nome_logradouro ?? ""}<br>
-      <b>Empresa(s):</b> ${
-        Array.isArray(p.empresas) ? p.empresas.join(", ") : (p.empresa ?? "Nenhuma")
-      }<br>
       <b>Material:</b> ${p.material ?? ""}<br>
       <b>Altura:</b> ${p.altura ?? ""}<br>
       <b>Tensão:</b> ${p.tensao_mecanica ?? ""}
     `);
-
-    markers.addLayer(marker);
-  });
-}
-
-// Garante que a resposta é JSON (evita parse de HTML vindo do SW/erro)
-async function fetchJsonGuard(url) {
-  const res = await fetch(url, { credentials: "same-origin" });
-  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
-  const ct = res.headers.get("content-type") || "";
-  const text = await res.text();
-  if (!ct.includes("application/json")) {
-    throw new Error(`Resposta não-JSON: ${text.slice(0, 120)}…`);
+    markers.addLayer(m);
   }
-  return JSON.parse(text);
+  if (end < items.length) {
+    // joga a continuação para o próximo frame
+    requestIdleCallback
+      ? requestIdleCallback(() => addMarkersBatch(items, end))
+      : setTimeout(() => addMarkersBatch(items, end), 0);
+  }
 }
 
-// 4) Carregamento em blocos de 20.000
-async function loadPostes20k() {
-  const LIMIT = 20000;        // <<< aqui definimos 20k por requisição
-  let page = 1;
-  let total = null;
-  let carregados = 0;
+// 4) Carrega o que está visível (BBOX + paginação)
+async function loadVisible() {
+  if (isLoading) return;
+  if (map.getZoom() < ZOOM_MIN) {
+    markers.clearLayers();
+    setStatus(`Aproxime o zoom (≥ ${ZOOM_MIN}) para carregar os postes.`);
+    return;
+  }
+
+  isLoading = true;
+  const token = ++lastLoadToken; // cancela cargas antigas
+  markers.clearLayers();
+  setStatus("Carregando…");
+
+  const paramsBase = boundsParams();
+  let page = 1, total = null, loaded = 0;
 
   try {
     while (true) {
-      const url = `/api/postes?page=${page}&limit=${LIMIT}`;
-      const data = await fetchJsonGuard(url);
+      // se outra carga começou, aborta esta
+      if (token !== lastLoadToken) break;
 
-      if (!data || !Array.isArray(data.data)) {
-        console.error("Estrutura inesperada:", data);
-        progressDiv.textContent = "❌ Erro: estrutura inesperada de resposta";
-        return;
-      }
+      const url = `/api/postes?${paramsBase}&page=${page}&limit=${PAGE_LIMIT}`;
+      const data = await fetchJsonGuard(url);
+      if (!data || !Array.isArray(data.data)) throw new Error("Estrutura inesperada da resposta");
 
       if (total == null) total = Number(data.total) || 0;
+      loaded += data.data.length;
 
-      addMarkers(data.data);
-      carregados += data.data.length;
+      setStatus(`Carregando… ${loaded}/${total}`);
 
-      const pct = total ? Math.min((carregados / total) * 100, 100) : 0;
-      progressDiv.textContent = `Carregando postes… ${carregados}/${total} (${pct.toFixed(1)}%)`;
+      addMarkersBatch(data.data);
 
-      // Termina quando trouxe tudo
-      if (carregados >= total || data.data.length === 0) break;
+      if (loaded >= total || data.data.length === 0) break;
 
-      // Pequena pausa para não travar o navegador
-      await new Promise((r) => setTimeout(r, 150));
-      page += 1;
+      // pequena pausa para não travar
+      await new Promise(r => setTimeout(r, 100));
+      page++;
     }
 
-    progressDiv.textContent = `✅ ${carregados} postes carregados`;
-    setTimeout(() => (progressDiv.style.display = "none"), 2000);
-  } catch (err) {
-    console.error("Erro ao carregar postes:", err);
-    progressDiv.textContent = "❌ Erro ao carregar postes";
+    setStatus(total ? `✅ ${loaded} de ${total} carregados` : `✅ ${loaded} carregados`);
+    // some o banner depois de 2s
+    setTimeout(() => { if (token === lastLoadToken) setStatus(""); }, 2000);
+  } catch (e) {
+    console.error("Erro ao carregar BBOX:", e);
+    setStatus("❌ Erro ao carregar postes");
+  } finally {
+    isLoading = false;
   }
 }
 
-// 5) Inicia
-loadPostes20k();
+// 5) Eventos do mapa
+map.on("moveend", loadVisible);
+map.on("zoomend", loadVisible);
 
-// ------------------------------------------------------------
-// Observações importantes:
-// - Garanta que o Service Worker NÃO intercepte '/api/*'.
-//   No sw.js, no handler de 'fetch':
-//     if (new URL(e.request.url).pathname.startsWith('/api/')) return;  // não intercepta
-// - Teste a API no navegador: /api/postes?page=1&limit=10 deve retornar JSON.
-// - O backend (api/postes.js) precisa usar split_part(coordenadas, ',')
-//   para expor latitude/longitude.
-// ------------------------------------------------------------
+// 6) Primeira carga
+loadVisible();
