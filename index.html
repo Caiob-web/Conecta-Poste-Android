@@ -53,6 +53,7 @@
         position: absolute; bottom: 20px; right: 20px;
         background: rgba(255,255,255,0.9); padding: 12px; border-radius: 6px;
         font-size: 13px; font-family: "Segoe UI", sans-serif;
+        z-index: 1050;
       }
       .legenda-item { display: flex; align-items: center; margin-bottom: 6px; }
       .legenda-item .bolinha {
@@ -70,12 +71,13 @@
       #localizacaoUsuario { top: 68px; }
       #logoutBtn { top: 116px; }
 
-      /* Widget clima */
+      /* Widget clima (com z-index alto) */
       #widget-clima {
         position: absolute; bottom: 20px; left: 20px;
         background: rgba(255,255,255,0.95); border-radius: 6px;
         padding: 12px; font-size: 14px; font-family: "Segoe UI", sans-serif;
         width: 200px;
+        z-index: 1100; /* garante que fica por cima */
       }
       #widget-clima #hora { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; }
       #widget-clima #tempo { display: flex; align-items: center; }
@@ -125,11 +127,11 @@
       </div>
     </div>
 
-    <!-- Legenda -->
+    <!-- Legenda (ajustada para as regras do script) -->
     <div class="legenda">
-      <div class="legenda-item"><div class="bolinha" style="background: yellow"></div>Poste intermediário</div>
-      <div class="legenda-item"><div class="bolinha" style="background: green"></div>Até 5 empresas</div>
-      <div class="legenda-item"><div class="bolinha" style="background: red"></div>+5 empresas</div>
+      <div class="legenda-item"><div class="bolinha" style="background: green"></div>0–3 empresas</div>
+      <div class="legenda-item"><div class="bolinha" style="background: yellow"></div>4–5 empresas</div>
+      <div class="legenda-item"><div class="bolinha" style="background: red"></div>6+ empresas</div>
     </div>
 
     <!-- Mapa -->
