@@ -1,3 +1,4 @@
+// api/postes.js
 import { Pool } from "pg";
 
 let pool;
@@ -18,21 +19,38 @@ export default async function handler(req, res) {
   }
 
   try {
-    const page = parseInt(req.query.page || "1", 10);
-    const limit = parseInt(req.query.limit || "20000", 10);
-    const offset = (page - 1) * limit;
-
     const db = getPool();
 
-    const totalResult = await db.query(
-      `SELECT COUNT(*) AS c 
-         FROM dados_poste 
-        WHERE coordenadas IS NOT NULL 
-          AND TRIM(coordenadas) <> ''`
-    );
-    const total = parseInt(totalResult.rows[0].c, 10);
+    // Bounds obrigatórios e paginação
+    const minLat = parseFloat(req.query.minLat);
+    const maxLat = parseFloat(req.query.maxLat);
+    const minLng = parseFloat(req.query.minLng);
+    const maxLng = parseFloat(req.query.maxLng);
 
-    const result = await db.query(
+    if (
+      !Number.isFinite(minLat) || !Number.isFinite(maxLat) ||
+      !Number.isFinite(minLng) || !Number.isFinite(maxLng)
+    ) {
+      return res.status(400).json({ error: "Parâmetros de bounds inválidos" });
+    }
+
+    const page  = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "5000", 10), 100), 20000); // 100–20k
+    const offset = (page - 1) * limit;
+
+    // Total no bbox
+    const totalRes = await db.query(
+      `SELECT COUNT(*) AS c
+         FROM dados_poste
+        WHERE coordenadas IS NOT NULL AND TRIM(coordenadas) <> ''
+          AND CAST(split_part(coordenadas, ',', 1) AS double precision) BETWEEN $1 AND $2
+          AND CAST(split_part(coordenadas, ',', 2) AS double precision) BETWEEN $3 AND $4`,
+      [minLat, maxLat, minLng, maxLng]
+    );
+    const total = parseInt(totalRes.rows[0].c, 10);
+
+    // Página no bbox
+    const rowsRes = await db.query(
       `SELECT
           d.id,
           d.nome_municipio,
@@ -43,20 +61,18 @@ export default async function handler(req, res) {
           d.tensao_mecanica,
           d.coordenadas,
           CAST(split_part(d.coordenadas, ',', 1) AS double precision) AS latitude,
-          CAST(split_part(d.coordenadas, ',', 2) AS double precision) AS longitude,
-          ep.empresa
+          CAST(split_part(d.coordenadas, ',', 2) AS double precision) AS longitude
        FROM dados_poste d
-       LEFT JOIN empresa_poste ep
-              ON d.id::text = ep.id_poste
-      WHERE d.coordenadas IS NOT NULL 
-        AND TRIM(d.coordenadas) <> ''
+      WHERE d.coordenadas IS NOT NULL AND TRIM(d.coordenadas) <> ''
+        AND CAST(split_part(d.coordenadas, ',', 1) AS double precision) BETWEEN $1 AND $2
+        AND CAST(split_part(d.coordenadas, ',', 2) AS double precision) BETWEEN $3 AND $4
       ORDER BY d.id
-      LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      LIMIT $5 OFFSET $6`,
+      [minLat, maxLat, minLng, maxLng, limit, offset]
     );
 
-    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-    return res.status(200).json({ total, data: result.rows });
+    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=120");
+    return res.status(200).json({ total, data: rowsRes.rows });
   } catch (err) {
     console.error("Erro em /api/postes:", err);
     return res.status(500).json({ error: "Erro ao buscar postes" });
