@@ -1,13 +1,35 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Você está offline</title>
-  <style>body{font-family:system-ui;margin:2rem}</style>
+  <meta name="theme-color" content="#0055a5">
+  <style>
+    :root{--bg:#f7fafc;--fg:#1f2937;--card:#ffffff;--muted:#6b7280;--primary:#0055a5}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);display:grid;place-items:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .card{background:var(--card);padding:28px 22px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.08);max-width:520px;width:calc(100% - 32px);text-align:center}
+    .icon{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;margin:0 auto 12px;background:#e8f1fb;color:var(--primary);font-size:28px}
+    h1{font-size:22px;margin:8px 0 6px}
+    p{margin:6px 0}
+    .tips{margin-top:10px;color:var(--muted);font-size:14px}
+    .btns{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
+    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  </style>
 </head>
 <body>
-  <h1>Sem conexão</h1>
-  <p>Algumas funções não estarão disponíveis. Quando a internet voltar, sincronizamos os dados pendentes.</p>
+  <main class="card" role="main" aria-labelledby="ttl">
+    <div class="icon" aria-hidden="true">⌁</div>
+    <h1 id="ttl">Sem conexão com a internet</h1>
+    <p>Você pode ver tiles e dados que já foram abertos anteriormente.</p>
+    <p>Conecte-se para carregar novas áreas do mapa e atualizar os postes.</p>
+    <div class="btns">
+      <button class="btn primary" onclick="location.reload()">Tentar novamente</button>
+      <button class="btn" onclick="history.back()">Voltar</button>
+    </div>
+    <p class="tips">Versão somente visualização • funciona offline com conteúdo já em cache</p>
+  </main>
 </body>
 </html>
