@@ -6,9 +6,10 @@
 // - Timeout de fetch
 // - Limpa marcadores apenas quando chega o 1º lote novo
 // - Cores por qtd de empresas: <4 = verde | 4–5 = amarelo | >5 = vermelho
+// - Relógio e Clima (Open-Meteo) no canto esquerdo
 
 /* ---------------------- Configuração ---------------------- */
-const ZOOM_MIN = 12;                // não carrega abaixo disso (suba p/ 13/14 se quiser menos dados)
+const ZOOM_MIN = 12;                // não carrega abaixo disso
 const PAGE_LIMIT = 20000;           // 20k por requisição
 const FETCH_TIMEOUT_MS = 12000;
 
@@ -58,7 +59,7 @@ function hideOverlay() {
   setLoading(false);
 }
 
-/* ---------------------- Helpers ---------------------- */
+/* ---------------------- Helpers comuns ---------------------- */
 function buildBBoxQS() {
   const b = map.getBounds();
   return new URLSearchParams({
@@ -99,6 +100,29 @@ function parseLatLng(p) {
   return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
 }
 
+function escHTML(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function empresasComoLista(empresas) {
+  if (!Array.isArray(empresas) || empresas.length === 0) return "—";
+  // tira vazios e duplicados mantendo ordem
+  const clean = [];
+  const seen = new Set();
+  for (const e of empresas) {
+    const v = String(e || "").trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    clean.push(v);
+  }
+  const lis = clean.map((e) => `<li>${escHTML(e)}</li>`).join("");
+  return `<ol style="margin:6px 0 0 18px;padding:0">${lis}</ol>`;
+}
+
 /* ----------- Cores por quantidade de empresas (regras) ----------- */
 function corPorEmpresas(qtd) {
   // verde: <4 ; amarelo: 4–5 ; vermelho: >5
@@ -118,7 +142,6 @@ function addBatch(items, start = 0, batch = 1200) {
 
     const qtd = Number(p.qtd_empresas ?? 0);
     const fill = corPorEmpresas(qtd);
-    const empresasTxt = Array.isArray(p.empresas) ? p.empresas.join(", ") : "";
 
     const marker = L.circleMarker(ll, {
       radius: 6,
@@ -127,15 +150,16 @@ function addBatch(items, start = 0, batch = 1200) {
       weight: 2,
       fillOpacity: 0.9,
     }).bindPopup(`
-      <b>ID:</b> ${p.id ?? ""}<br>
+      <b>ID:</b> ${escHTML(p.id ?? "")}<br>
       <b>Coord:</b> ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}<br>
-      <b>Município:</b> ${p.nome_municipio ?? ""}<br>
-      <b>Bairro:</b> ${p.nome_bairro ?? ""}<br>
-      <b>Logradouro:</b> ${p.nome_logradouro ?? ""}<br>
-      <b>Material:</b> ${p.material ?? ""}<br>
-      <b>Altura:</b> ${p.altura ?? ""}<br>
-      <b>Tensão:</b> ${p.tensao_mecanica ?? ""}<br>
-      <b>Empresas:</b> ${empresasTxt || "—"} ${qtd ? `(${qtd})` : "(0)"}
+      <b>Município:</b> ${escHTML(p.nome_municipio ?? "")}<br>
+      <b>Bairro:</b> ${escHTML(p.nome_bairro ?? "")}<br>
+      <b>Logradouro:</b> ${escHTML(p.nome_logradouro ?? "")}<br>
+      <b>Material:</b> ${escHTML(p.material ?? "")}<br>
+      <b>Altura:</b> ${escHTML(p.altura ?? "")}<br>
+      <b>Tensão:</b> ${escHTML(p.tensao_mecanica ?? "")}<br>
+      <b>Empresas (${qtd}):</b>
+      ${empresasComoLista(p.empresas)}
     `);
     toAdd.push(marker);
   }
@@ -209,6 +233,8 @@ async function loadVisible() {
     if (!firstLoadDone) {
       firstLoadDone = true;
       hideOverlay();
+      // dispara o clima depois do 1º load
+      initClockAndWeather();
     }
   } catch (e) {
     console.error("Erro ao carregar BBOX:", e);
@@ -289,3 +315,96 @@ Object.assign(window, {
   resetarMapa,
   gerarPDFComMapa,
 });
+
+/* ---------------------- Relógio + Clima ---------------------- */
+const horaSpan  = document.querySelector("#widget-clima #hora span");
+const tempoWrap = document.querySelector("#widget-clima #tempo");
+const tempoImg  = document.querySelector("#widget-clima #tempo img");
+const tempoSpan = document.querySelector("#widget-clima #tempo span");
+
+function startClock() {
+  function tick() {
+    try {
+      const agora = new Date();
+      const str = agora.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      if (horaSpan) horaSpan.textContent = str;
+    } catch {}
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+function wxDesc(code) {
+  // tabela simplificada (Open-Meteo weather_code)
+  const c = Number(code);
+  if ([0].includes(c)) return "Céu limpo";
+  if ([1, 2].includes(c)) return "Parcialmente nublado";
+  if ([3].includes(c)) return "Nublado";
+  if ([45, 48].includes(c)) return "Neblina";
+  if ([51, 53, 55].includes(c)) return "Garoa";
+  if ([61, 63, 65].includes(c)) return "Chuva";
+  if ([80, 81, 82].includes(c)) return "Pancadas de chuva";
+  if ([71, 73, 75, 77].includes(c)) return "Neve";
+  if ([95, 96, 99].includes(c)) return "Tempestade";
+  return "Tempo indefinido";
+}
+
+function wxIconDataURI(code, isDay) {
+  // ícones SVG minimalistas embutidos (data URI)
+  const c = Number(code);
+  const sun = `<circle cx="16" cy="16" r="6" fill="${isDay ? '#FDB813' : '#B0C4DE'}"/>`;
+  const cloud = `<ellipse cx="18" cy="18" rx="10" ry="6" fill="#cfd8dc"/>`;
+  const drops = `<path d="M10 26 l2 -4 l2 4 z M18 26 l2 -4 l2 4 z M26 26 l2 -4 l2 4 z" fill="#4fc3f7"/>`;
+  const bolt = `<polygon points="18,16 14,24 20,24 16,32 26,22 20,22 24,16" fill="#fdd835"/>`;
+  let inner = '';
+  if (c === 0) inner = sun;
+  else if ([1,2].includes(c)) inner = `${sun}${cloud}`;
+  else if ([3,45,48].includes(c)) inner = cloud;
+  else if ([51,53,55,61,63,65,80,81,82].includes(c)) inner = `${cloud}${drops}`;
+  else if ([95,96,99].includes(c)) inner = `${cloud}${bolt}`;
+  else inner = `${cloud}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">${inner}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+async function refreshWeather(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&timezone=auto`;
+    const data = await fetchJsonGuard(url);
+    const c = data?.current;
+    if (!c) throw new Error("Sem dados de clima");
+    const desc = wxDesc(c.weather_code);
+    const temp = Math.round(c.temperature_2m);
+    if (tempoSpan) tempoSpan.textContent = `${temp}°C — ${desc}`;
+    if (tempoImg) {
+      tempoImg.src = wxIconDataURI(c.weather_code, c.is_day === 1);
+      tempoImg.alt = desc;
+      tempoImg.style.display = "inline-block";
+    }
+  } catch (e) {
+    if (tempoSpan) tempoSpan.textContent = "Clima indisponível";
+    if (tempoImg) tempoImg.style.display = "none";
+    console.warn("Falha ao obter clima:", e);
+  }
+}
+
+function initClockAndWeather() {
+  // Relógio
+  startClock();
+
+  // Clima inicial no centro do mapa
+  const c = map.getCenter();
+  refreshWeather(c.lat, c.lng);
+
+  // Atualiza clima a cada 10 min
+  setInterval(() => {
+    const cc = map.getCenter();
+    refreshWeather(cc.lat, cc.lng);
+  }, 10 * 60 * 1000);
+
+  // Clique no widget força atualização
+  tempoWrap?.addEventListener("click", () => {
+    const cc = map.getCenter();
+    refreshWeather(cc.lat, cc.lng);
+  });
+}
