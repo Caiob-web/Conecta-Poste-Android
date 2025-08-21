@@ -1,58 +1,125 @@
-const map = L.map("map").setView([-23.18, -45.88], 13);
+// ===== script.js — BBOX + 20k por página + zoom mínimo + progress =====
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-}).addTo(map);
+const ZOOM_MIN = 12;          // não carrega abaixo disso
+const PAGE_LIMIT = 20000;     // 20k por requisição
+let isLoading = false;
+let lastToken = 0;
 
-const layerGroup = L.layerGroup().addTo(map);
+// Mapa (Canvas ajuda no mobile)
+const map = L.map("map", { preferCanvas: true }).setView([-23.2237, -45.9009], 13);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+const markers = L.markerClusterGroup({
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  zoomToBoundsOnClick: false,
+  maxClusterRadius: 60,
+  disableClusteringAtZoom: 17,
+});
+map.addLayer(markers);
 
-const loadingDiv = document.getElementById("loading");
-const statusText = document.getElementById("status");
+// Banner de status
+const statusDiv = document.createElement("div");
+Object.assign(statusDiv.style, {
+  position: "absolute", top: "12px", left: "50%", transform: "translateX(-50%)",
+  background: "rgba(0,0,0,.75)", color: "#fff", padding: "6px 12px",
+  borderRadius: "8px", font: "14px system-ui, Arial", zIndex: "9999",
+});
+document.body.appendChild(statusDiv);
+const setStatus = (t) => { statusDiv.textContent = t || ""; statusDiv.style.display = t ? "block" : "none"; };
 
-// função para buscar postes visíveis no mapa
-async function fetchPostes() {
-  loadingDiv.style.display = "block";
-  statusText.innerText = "Carregando postes visíveis...";
+// Helpers
+function getBBoxParams() {
+  const b = map.getBounds();
+  return new URLSearchParams({
+    minLat: b.getSouth(),
+    maxLat: b.getNorth(),
+    minLng: b.getWest(),
+    maxLng: b.getEast(),
+  }).toString();
+}
+async function fetchJsonGuard(url) {
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
+  const ct = res.headers.get("content-type") || "";
+  const txt = await res.text();
+  if (!ct.includes("application/json")) throw new Error(`Resposta não-JSON: ${txt.slice(0,120)}…`);
+  return JSON.parse(txt);
+}
+function addBatch(items, start = 0, batch = 1000) {
+  const end = Math.min(start + batch, items.length);
+  for (let i = start; i < end; i++) {
+    const p = items[i];
+    const lat = p.latitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[0]) : null);
+    const lng = p.longitude ?? (p.coordenadas ? parseFloat(p.coordenadas.split(",")[1]) : null);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-  const bounds = map.getBounds();
-  const north = bounds.getNorth();
-  const south = bounds.getSouth();
-  const east = bounds.getEast();
-  const west = bounds.getWest();
-
-  try {
-    const res = await fetch(
-      `/api/postes?north=${north}&south=${south}&east=${east}&west=${west}&limit=5000`
-    );
-    const json = await res.json();
-
-    layerGroup.clearLayers();
-    json.data.forEach((p) => {
-      if (p.latitude && p.longitude) {
-        L.circleMarker([p.latitude, p.longitude], {
-          radius: 4,
-          color: "#007bff",
-          fillOpacity: 0.7,
-        }).bindPopup(`
-          <b>ID:</b> ${p.id}<br>
-          <b>Município:</b> ${p.municipio}<br>
-          <b>Bairro:</b> ${p.bairro}<br>
-          <b>Rua:</b> ${p.logradouro}
-        `).addTo(layerGroup);
-      }
-    });
-
-    statusText.innerText = `Postes carregados: ${json.data.length}`;
-  } catch (err) {
-    console.error(err);
-    statusText.innerText = "Erro ao carregar postes.";
-  } finally {
-    setTimeout(() => (loadingDiv.style.display = "none"), 1500);
+    const m = L.circleMarker([lat, lng], {
+      radius: 6, fillColor: "green", color: "#fff", weight: 2, fillOpacity: 0.8,
+    }).bindPopup(`
+      <b>ID:</b> ${p.id}<br>
+      <b>Coord:</b> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+      <b>Município:</b> ${p.nome_municipio ?? ""}<br>
+      <b>Bairro:</b> ${p.nome_bairro ?? ""}<br>
+      <b>Logradouro:</b> ${p.nome_logradouro ?? ""}<br>
+      <b>Material:</b> ${p.material ?? ""}<br>
+      <b>Altura:</b> ${p.altura ?? ""}<br>
+      <b>Tensão:</b> ${p.tensao_mecanica ?? ""}
+    `);
+    markers.addLayer(m);
+  }
+  if (end < items.length) {
+    (self.requestIdleCallback || setTimeout)(() => addBatch(items, end, batch), 0);
   }
 }
 
-// busca inicial
-fetchPostes();
+// Carrega apenas o que está visível
+async function loadVisible() {
+  if (isLoading) return;
+  if (map.getZoom() < ZOOM_MIN) {
+    markers.clearLayers();
+    setStatus(`Aproxime o zoom (≥ ${ZOOM_MIN}) para carregar os postes.`);
+    return;
+  }
 
-// recarregar ao mover ou dar zoom
-map.on("moveend", fetchPostes);
+  isLoading = true;
+  const token = ++lastToken;
+  markers.clearLayers();
+  setStatus("Carregando…");
+
+  const base = getBBoxParams();
+  let page = 1, total = null, loaded = 0;
+
+  try {
+    while (true) {
+      if (token !== lastToken) break; // outro load começou
+
+      const url = `/api/postes?${base}&page=${page}&limit=${PAGE_LIMIT}`;
+      const data = await fetchJsonGuard(url); // se der 400 aqui, é porque faltou BBOX
+
+      if (!data || !Array.isArray(data.data)) throw new Error("Estrutura inesperada da resposta");
+      if (total == null) total = Number(data.total) || 0;
+
+      addBatch(data.data);
+      loaded += data.data.length;
+      setStatus(`Carregando… ${loaded}/${total}`);
+
+      if (loaded >= total || data.data.length === 0) break;
+      await new Promise((r) => setTimeout(r, 100));
+      page++;
+    }
+
+    if (token === lastToken) {
+      setStatus(total ? `✅ ${loaded} de ${total} carregados` : `✅ ${loaded} carregados`);
+      setTimeout(() => { if (token === lastToken) setStatus(""); }, 2000);
+    }
+  } catch (e) {
+    console.error("Erro ao carregar BBOX:", e);
+    setStatus("❌ Erro ao carregar postes");
+  } finally {
+    isLoading = false;
+  }
+}
+
+map.on("moveend", loadVisible);
+map.on("zoomend", loadVisible);
+loadVisible();
