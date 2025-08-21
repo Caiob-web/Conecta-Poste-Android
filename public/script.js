@@ -1,35 +1,34 @@
 // ===== script.js — Versão Visualização (mobile/tablet) =====
 // - BBOX com paginação
 // - Overlay só no 1º load (e com atraso)
-// - Sem overlay em pan/zoom
-// - Debounce de eventos
-// - Timeout de fetch
-// - Limpa marcadores apenas quando chega o 1º lote novo
-// - Cores por qtd de empresas: <4 = verde | 4–5 = amarelo | >5 = vermelho
-// - Relógio e Clima (Open-Meteo) no canto esquerdo
+// - Sem overlay em pan/zoom (debounce)
+// - Timeout no fetch
+// - Marcadores coloridos por qtd de empresas (<4 verde, 4–5 amarelo, >5 vermelho)
+// - Popup com empresas numeradas
+// - Relógio com data pequena e clima + nome da cidade
 
 /* ---------------------- Configuração ---------------------- */
-const ZOOM_MIN = 12;                // não carrega abaixo disso
-const PAGE_LIMIT = 20000;           // 20k por requisição
+const ZOOM_MIN = 12;
+const PAGE_LIMIT = 20000;
 const FETCH_TIMEOUT_MS = 12000;
 
 /* UX de carregamento */
-const DEBOUNCE_MS = 400;            // reduz chamadas consecutivas no mobile
-const FIRST_LOAD_OVERLAY = true;    // overlay só no 1º carregamento
-const SLOW_FIRST_LOAD_MS = 700;     // mostra overlay do 1º load apenas se demorar mais que isso
+const DEBOUNCE_MS = 400;
+const FIRST_LOAD_OVERLAY = true;
+const SLOW_FIRST_LOAD_MS = 700;
 
 /* ---------------------- Estado global ---------------------- */
 let isLoading = false;
 let lastToken = 0;
 let firstLoadDone = false;
 let overlayTimer = null;
+let widgetStarted = false;        // evita iniciar relógio/clima duas vezes
 
 /* ---------------------- Mapa ---------------------- */
 const map = L.map("map", { preferCanvas: true }).setView([-23.2237, -45.9009], 13);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
 
 const markers = L.markerClusterGroup({
@@ -38,7 +37,7 @@ const markers = L.markerClusterGroup({
   zoomToBoundsOnClick: false,
   maxClusterRadius: 60,
   disableClusteringAtZoom: 17,
-  chunkedLoading: true, // melhora muito no mobile
+  chunkedLoading: true,
 });
 map.addLayer(markers);
 
@@ -60,6 +59,20 @@ function hideOverlay() {
 }
 
 /* ---------------------- Helpers comuns ---------------------- */
+async function fetchJsonGuard(url) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort("timeout"), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { credentials: "same-origin", signal: ctrl.signal });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}: ${text.slice(0, 120)}…`);
+    try { return JSON.parse(text); }
+    catch { throw new Error(`Resposta não-JSON: ${text.slice(0, 120)}…`); }
+  } finally {
+    clearTimeout(to);
+  }
+}
+
 function buildBBoxQS() {
   const b = map.getBounds();
   return new URLSearchParams({
@@ -70,25 +83,7 @@ function buildBBoxQS() {
   });
 }
 
-async function fetchJsonGuard(url) {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort("timeout"), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { credentials: "same-origin", signal: ctrl.signal });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}: ${text.slice(0, 120)}…`);
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error(`Resposta não-JSON: ${text.slice(0, 120)}…`);
-    }
-  } finally {
-    clearTimeout(to);
-  }
-}
-
 function parseLatLng(p) {
-  // tenta latitude/longitude; senão, tenta "lat,lon" na string coordenadas
   let lat = p.latitude ?? p.Latitude ?? p.y;
   let lng = p.longitude ?? p.Longitude ?? p.x;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -102,30 +97,26 @@ function parseLatLng(p) {
 
 function escHTML(s) {
   return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
 
+/* ----------- Empresas no popup (numeradas) ----------- */
 function empresasComoLista(empresas) {
   if (!Array.isArray(empresas) || empresas.length === 0) return "—";
-  // tira vazios e duplicados mantendo ordem
   const clean = [];
   const seen = new Set();
   for (const e of empresas) {
     const v = String(e || "").trim();
     if (!v || seen.has(v)) continue;
-    seen.add(v);
-    clean.push(v);
+    seen.add(v); clean.push(v);
   }
   const lis = clean.map((e) => `<li>${escHTML(e)}</li>`).join("");
   return `<ol style="margin:6px 0 0 18px;padding:0">${lis}</ol>`;
 }
 
-/* ----------- Cores por quantidade de empresas (regras) ----------- */
+/* ----------- Cores por quantidade de empresas ----------- */
 function corPorEmpresas(qtd) {
-  // verde: <4 ; amarelo: 4–5 ; vermelho: >5
   if (Number(qtd) > 5) return "red";
   if (Number(qtd) >= 4) return "yellow";
   return "green";
@@ -144,11 +135,7 @@ function addBatch(items, start = 0, batch = 1200) {
     const fill = corPorEmpresas(qtd);
 
     const marker = L.circleMarker(ll, {
-      radius: 6,
-      fillColor: fill,
-      color: "#fff",
-      weight: 2,
-      fillOpacity: 0.9,
+      radius: 6, fillColor: fill, color: "#fff", weight: 2, fillOpacity: 0.9,
     }).bindPopup(`
       <b>ID:</b> ${escHTML(p.id ?? "")}<br>
       <b>Coord:</b> ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}<br>
@@ -164,16 +151,13 @@ function addBatch(items, start = 0, batch = 1200) {
     toAdd.push(marker);
   }
   if (toAdd.length) markers.addLayers(toAdd);
-  if (end < items.length) {
-    (self.requestIdleCallback || setTimeout)(() => addBatch(items, end, batch), 0);
-  }
+  if (end < items.length) (self.requestIdleCallback || setTimeout)(() => addBatch(items, end, batch), 0);
 }
 
 /* ---------------------- Carregamento BBOX ---------------------- */
 async function loadVisible() {
   if (isLoading) return;
 
-  // Aviso apenas quando o zoom está baixo
   if (map.getZoom() < ZOOM_MIN) {
     markers.clearLayers();
     setLoading(true, `Aproxime o zoom (≥ ${ZOOM_MIN}) para carregar os postes.`);
@@ -184,11 +168,8 @@ async function loadVisible() {
 
   isLoading = true;
   const token = ++lastToken;
-
-  // Não limpamos marcadores aqui; só após chegar o 1º lote novo
   let cleared = false;
 
-  // Overlay apenas no 1º carregamento (se demorar)
   if (!firstLoadDone && FIRST_LOAD_OVERLAY) {
     showOverlayDeferred("Carregando…");
   }
@@ -197,7 +178,7 @@ async function loadVisible() {
 
   try {
     while (true) {
-      if (token !== lastToken) break; // outra carga começou
+      if (token !== lastToken) break;
 
       const qs = buildBBoxQS();
       qs.set("page", String(page));
@@ -205,40 +186,28 @@ async function loadVisible() {
       const url = `/api/postes?${qs.toString()}`;
 
       const payload = await fetchJsonGuard(url);
-      const items = Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload)
-        ? payload
-        : [];
+      const items = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
       const got = items.length;
 
       if (total == null) total = Number(payload?.total ?? got ?? 0);
       if (!got) break;
 
-      // chegou conteúdo novo: limpamos uma única vez
-      if (!cleared && token === lastToken) {
-        markers.clearLayers();
-        cleared = true;
-      }
-
+      if (!cleared && token === lastToken) { markers.clearLayers(); cleared = true; }
       addBatch(items);
       loaded += got;
 
       if (total > 0 && loaded >= total) break;
-      await new Promise((r) => setTimeout(r, 60)); // respiro
+      await new Promise((r) => setTimeout(r, 60));
       page++;
     }
 
-    // 1º carregamento concluído — some overlay, marque conclusão
     if (!firstLoadDone) {
       firstLoadDone = true;
       hideOverlay();
-      // dispara o clima depois do 1º load
-      initClockAndWeather();
+      initClockAndWeather(); // começa relógio + clima no 1º load
     }
   } catch (e) {
     console.error("Erro ao carregar BBOX:", e);
-    // em erro, mantemos os marcadores antigos e não mostramos overlay
     hideOverlay();
   } finally {
     isLoading = false;
@@ -247,30 +216,23 @@ async function loadVisible() {
 
 /* ---------------------- Eventos do mapa (debounced) ---------------------- */
 let moveendTimer = null;
-map.on("moveend", () => {
-  clearTimeout(moveendTimer);
-  moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS);
+map.on("moveend", () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS); });
+map.on("zoomend",  () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS); });
+
+map.whenReady(() => {
+  loadVisible();
+  initClockAndWeather(); // inicia já (tem guarda interno)
 });
-map.on("zoomend", () => {
-  clearTimeout(moveendTimer);
-  moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS);
-});
-map.whenReady(loadVisible);
 
 /* ---------------------- Botões essenciais ---------------------- */
 document.getElementById("togglePainel")?.addEventListener("click", () => {
   const p = document.getElementById("painelBusca");
   p.style.display = p.style.display === "none" ? "block" : "none";
 });
-
 document.getElementById("localizacaoUsuario")?.addEventListener("click", () => {
   if (!navigator.geolocation) return alert("Geolocalização não suportada");
   navigator.geolocation.getCurrentPosition(
-    (pos) =>
-      map.setView(
-        [pos.coords.latitude, pos.coords.longitude],
-        Math.max(map.getZoom(), 16)
-      ),
+    (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], Math.max(map.getZoom(), 16)),
     () => alert("Não foi possível obter sua localização")
   );
 });
@@ -281,61 +243,58 @@ function toast(msg) {
     const el = document.createElement("div");
     el.textContent = msg;
     Object.assign(el.style, {
-      position: "fixed",
-      bottom: "20px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      background: "rgba(0,0,0,.8)",
-      color: "#fff",
-      padding: "8px 12px",
-      borderRadius: "8px",
-      font: "14px system-ui, Arial",
-      zIndex: "9999",
+      position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)",
+      background: "rgba(0,0,0,.8)", color: "#fff", padding: "8px 12px",
+      borderRadius: "8px", font: "14px system-ui, Arial", zIndex: "9999",
     });
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 1800);
-  } catch {
-    alert(msg);
-  }
+  } catch { alert(msg); }
 }
-
 function buscarID() { toast("Função indisponível nesta versão (visualização)."); }
 function buscarCoordenada() { toast("Função indisponível nesta versão (visualização)."); }
 function filtrarLocal() { toast("Função indisponível nesta versão (visualização)."); }
 function consultarIDsEmMassa() { toast("Função indisponível nesta versão (visualização)."); }
 function resetarMapa() { map.setView([-23.2237, -45.9009], 13); }
 function gerarPDFComMapa() { toast("Função indisponível nesta versão (visualização)."); }
+Object.assign(window, { buscarID, buscarCoordenada, filtrarLocal, consultarIDsEmMassa, resetarMapa, gerarPDFComMapa });
 
-// Exporta no escopo global (por segurança com onclicks inline)
-Object.assign(window, {
-  buscarID,
-  buscarCoordenada,
-  filtrarLocal,
-  consultarIDsEmMassa,
-  resetarMapa,
-  gerarPDFComMapa,
-});
+/* ---------------------- Relógio + Clima + Cidade ---------------------- */
+const horaDiv  = document.querySelector("#widget-clima #hora");
+const horaSpan = document.querySelector("#widget-clima #hora span");
+let dataSmall  = document.querySelector("#widget-clima #hora small");
+if (!dataSmall && horaDiv) {
+  dataSmall = document.createElement("small");
+  dataSmall.style.marginLeft = "6px";
+  dataSmall.style.fontSize = "12px";
+  dataSmall.style.opacity = "0.8";
+  dataSmall.style.fontWeight = "normal";
+  horaDiv.appendChild(dataSmall);
+}
 
-/* ---------------------- Relógio + Clima ---------------------- */
-const horaSpan  = document.querySelector("#widget-clima #hora span");
 const tempoWrap = document.querySelector("#widget-clima #tempo");
 const tempoImg  = document.querySelector("#widget-clima #tempo img");
 const tempoSpan = document.querySelector("#widget-clima #tempo span");
 
+function formatShortDate(d) {
+  // ex.: "qui, 22/08"
+  let s = d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  s = s.replace(/\.$/, "").toLowerCase();
+  return s;
+}
+
 function startClock() {
   function tick() {
-    try {
-      const agora = new Date();
-      const str = agora.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-      if (horaSpan) horaSpan.textContent = str;
-    } catch {}
+    const now = new Date();
+    const hhmm = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (horaSpan) horaSpan.textContent = hhmm;
+    if (dataSmall) dataSmall.textContent = ` ${formatShortDate(now)}`;
   }
   tick();
   setInterval(tick, 1000);
 }
 
 function wxDesc(code) {
-  // tabela simplificada (Open-Meteo weather_code)
   const c = Number(code);
   if ([0].includes(c)) return "Céu limpo";
   if ([1, 2].includes(c)) return "Parcialmente nublado";
@@ -350,7 +309,6 @@ function wxDesc(code) {
 }
 
 function wxIconDataURI(code, isDay) {
-  // ícones SVG minimalistas embutidos (data URI)
   const c = Number(code);
   const sun = `<circle cx="16" cy="16" r="6" fill="${isDay ? '#FDB813' : '#B0C4DE'}"/>`;
   const cloud = `<ellipse cx="18" cy="18" rx="10" ry="6" fill="#cfd8dc"/>`;
@@ -367,15 +325,41 @@ function wxIconDataURI(code, isDay) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/* --- Reverse geocoding p/ descobrir a cidade --- */
+const geoCache = new Map(); // chave: "lat,lon" arredondados
+async function reverseGeocodeName(lat, lon) {
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  if (geoCache.has(key)) return geoCache.get(key);
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1&accept-language=pt-BR`;
+  try {
+    const data = await fetchJsonGuard(url);
+    const a = data?.address || {};
+    const city = a.city || a.town || a.village || a.municipality || a.city_district || a.suburb || a.county;
+    const state = a.state || a.region;
+    const place = city ? (state ? `${city} - ${state}` : city) : (state || (data?.display_name?.split(",")[0] || "Local"));
+    geoCache.set(key, place);
+    return place;
+  } catch {
+    geoCache.set(key, "");
+    return "";
+  }
+}
+
 async function refreshWeather(lat, lon) {
   try {
+    // clima
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&timezone=auto`;
     const data = await fetchJsonGuard(url);
     const c = data?.current;
     if (!c) throw new Error("Sem dados de clima");
+
     const desc = wxDesc(c.weather_code);
     const temp = Math.round(c.temperature_2m);
-    if (tempoSpan) tempoSpan.textContent = `${temp}°C — ${desc}`;
+
+    // cidade
+    const place = await reverseGeocodeName(lat, lon);
+
+    if (tempoSpan) tempoSpan.textContent = `${place ? place + " — " : ""}${temp}°C — ${desc}`;
     if (tempoImg) {
       tempoImg.src = wxIconDataURI(c.weather_code, c.is_day === 1);
       tempoImg.alt = desc;
@@ -389,6 +373,9 @@ async function refreshWeather(lat, lon) {
 }
 
 function initClockAndWeather() {
+  if (widgetStarted) return;
+  widgetStarted = true;
+
   // Relógio
   startClock();
 
