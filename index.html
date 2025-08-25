@@ -76,8 +76,8 @@
         position: absolute; bottom: 20px; left: 20px;
         background: rgba(255,255,255,0.95); border-radius: 6px;
         padding: 12px; font-size: 14px; font-family: "Segoe UI", sans-serif;
-        width: 200px;
-        z-index: 1100; /* garante que fica por cima */
+        width: 220px;
+        z-index: 1100;
       }
       #widget-clima #hora { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; }
       #widget-clima #tempo { display: flex; align-items: center; }
@@ -101,33 +101,45 @@
     <div id="localizacaoUsuario" class="botao-topo"><i class="fa fa-location-dot"></i></div>
     <div id="logoutBtn" class="botao-topo"><i class="fa fa-sign-out-alt"></i></div>
 
-    <!-- Painel -->
+    <!-- Painel (campos reduzidos) -->
     <div class="painel-busca" id="painelBusca">
       <h3>Buscar Postes</h3>
-      <div class="field"><input type="text" id="busca-id" placeholder="ID do Poste…"/><i class="fa fa-hashtag"></i></div>
-      <div class="field"><input type="text" id="busca-coord" placeholder="Lat, Lon…"/><i class="fa fa-map-marker-alt"></i></div>
-      <div class="field"><input type="text" id="busca-municipio" placeholder="Município…" list="lista-municipios"/><i class="fa fa-city"></i></div>
+
+      <div class="field">
+        <input type="text" id="busca-id" placeholder="ID do Poste…"/>
+        <i class="fa fa-hashtag"></i>
+      </div>
+
+      <div class="field">
+        <input type="text" id="busca-coord" placeholder="Lat, Lon…"/>
+        <i class="fa fa-map-marker-alt"></i>
+      </div>
+
+      <div class="field">
+        <input type="text" id="busca-municipio" placeholder="Município…" list="lista-municipios"/>
+        <i class="fa fa-city"></i>
+      </div>
       <datalist id="lista-municipios"></datalist>
-      <div class="field"><input type="text" id="busca-bairro" placeholder="Bairro…" list="lista-bairros"/><i class="fa fa-map-marker-alt"></i></div>
-      <datalist id="lista-bairros"></datalist>
-      <div class="field"><input type="text" id="busca-logradouro" placeholder="Logradouro…" list="lista-logradouros"/><i class="fa fa-road"></i></div>
-      <datalist id="lista-logradouros"></datalist>
-      <div class="field"><input type="text" id="busca-empresa" placeholder="Empresa…" list="lista-empresas"/><i class="fa fa-building"></i></div>
+
+      <div class="field">
+        <input type="text" id="busca-empresa" placeholder="Empresa…" list="lista-empresas"/>
+        <i class="fa fa-building"></i>
+      </div>
       <datalist id="lista-empresas"></datalist>
-      <div class="field"><textarea id="ids-multiplos" rows="2" placeholder="Vários IDs…"></textarea><i class="fa fa-list"></i></div>
+
+      <!-- removidos: Bairro, Logradouro, Vários IDs -->
+
       <div class="actions">
         <button onclick="buscarID()"><i class="fa fa-search"></i>Buscar</button>
-        <button onclick="buscarCoordenada()"><i class="fa fa-map-marker-alt"></i>Coord</button>
+        <button onclick="buscarCoordenada()"><i class="fa fa-location-dot"></i>Coord</button>
         <button onclick="filtrarLocal()"><i class="fa fa-filter"></i>Filtrar</button>
-        <button onclick="consultarIDsEmMassa()"><i class="fa fa-chart-line"></i>Verif</button>
         <button onclick="resetarMapa()"><i class="fa fa-undo"></i>Reset</button>
-        <button onclick="gerarPDFComMapa()"><i class="fa fa-file-pdf"></i>PDF</button>
-        <button id="btnGerarExcel"><i class="fa fa-file-excel"></i>Excel</button>
         <button id="btnCenso"><i class="fa fa-camera"></i>Censo</button>
+        <!-- removidos: Verif, PDF, Excel -->
       </div>
     </div>
 
-    <!-- Legenda (ajustada para as regras do script) -->
+    <!-- Legenda -->
     <div class="legenda">
       <div class="legenda-item"><div class="bolinha" style="background: green"></div>0–3 empresas</div>
       <div class="legenda-item"><div class="bolinha" style="background: yellow"></div>4–5 empresas</div>
