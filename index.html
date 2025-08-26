@@ -42,17 +42,15 @@
       .painel-busca h3 { margin: 0 0 12px; color: #0055a5; font-size: 16px; }
 
       .painel-busca .field { margin-bottom: 10px; position: relative; }
-      .painel-busca input,
-      .painel-busca textarea {
+      .painel-busca input {
         width: 100%;
         height: 36px;
-        padding: 8px 36px 8px 12px;  /* espaço para ícone à direita */
+        padding: 8px 36px 8px 12px;
         border: 1px solid #ccc;
         border-radius: 6px;
         font-size: 14px;
         box-sizing: border-box;
       }
-      .painel-busca textarea { height: 72px; resize: vertical; }
       .painel-busca .field .fa {
         position: absolute; right: 10px; top: 50%;
         transform: translateY(-50%);
@@ -83,20 +81,18 @@
         width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; border: 1px solid #888;
       }
 
-      /* Botões flutuantes (funcionais) */
+      /* Botões flutuantes — agora FIXOS para garantir o clique */
       .botao-topo {
-        position: absolute; right: 20px; width: 40px; height: 40px;
+        position: fixed; right: 20px; width: 48px; height: 48px;
         background: #fff; border: 1px solid #ccc; border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,.12);
+        box-shadow: 0 2px 8px rgba(0,0,0,.18);
         display: flex; align-items: center; justify-content: center;
-        cursor: pointer; z-index: 1100;  /* maior que o painel */
+        cursor: pointer; z-index: 3000; pointer-events: auto;
       }
-      .botao-topo i { color: #333; }
+      .botao-topo i { color: #333; font-size: 18px; }
       .botao-topo:active { transform: scale(0.98); }
       #togglePainel { top: 20px; }
-      #localizacaoUsuario { top: 68px; }
-      /* opcional: forçar clique mesmo sobre o mapa */
-      .botao-topo { pointer-events: auto; }
+      #localizacaoUsuario { top: 78px; }
 
       /* Widget clima */
       #widget-clima {
@@ -114,21 +110,24 @@
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(255,255,255,0.8);
         display: none; align-items: center; justify-content: center; flex-direction: column;
-        z-index: 3000;
+        z-index: 4000;
       }
       .spinner { border: 6px solid #ccc; border-top: 6px solid #0055a5; border-radius: 50%; width: 48px; height: 48px; animation: girar 1s linear infinite; }
       .texto-loading { margin-top: 12px; color: #0055a5; font-family: "Segoe UI", system-ui, Arial, sans-serif; }
       @keyframes girar { 0%{transform:rotate(0)} 100%{transform:rotate(360deg)} }
+
+      /* util */
+      .hidden { display: none !important; }
     </style>
   </head>
   <body>
-    <!-- Botões flutuantes -->
-    <div id="togglePainel" class="botao-topo" title="Mostrar/ocultar painel">
+    <!-- Botões flutuantes (funcionais) -->
+    <button id="togglePainel" class="botao-topo" aria-label="Mostrar/ocultar painel">
       <i class="fa fa-sliders"></i>
-    </div>
-    <div id="localizacaoUsuario" class="botao-topo" title="Minha localização">
+    </button>
+    <button id="localizacaoUsuario" class="botao-topo" aria-label="Minha localização">
       <i class="fa fa-location-dot"></i>
-    </div>
+    </button>
 
     <!-- Painel -->
     <div class="painel-busca" id="painelBusca">
