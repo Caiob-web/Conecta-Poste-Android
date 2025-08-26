@@ -28,10 +28,10 @@
       html, body { margin: 0; padding: 0; height: 100%; }
       #map { width: 100%; height: 100%; }
 
-      /* Painel lateral — layout compacto e "normal" */
+      /* Painel lateral — layout compacto e normalizado */
       .painel-busca {
         position: absolute; top: 80px; right: 20px;
-        width: 260px; /* compacto por padrão */
+        width: 260px;
         background: #fff; border-left: 4px solid #0055a5; border-radius: 8px;
         padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
         font-family: "Segoe UI", system-ui, Arial, sans-serif; z-index: 1000;
@@ -45,8 +45,8 @@
       .painel-busca input,
       .painel-busca textarea {
         width: 100%;
-        height: 36px;                /* altura normal */
-        padding: 8px 36px 8px 12px;  /* espaço para o ícone à direita */
+        height: 36px;
+        padding: 8px 36px 8px 12px;  /* espaço para ícone à direita */
         border: 1px solid #ccc;
         border-radius: 6px;
         font-size: 14px;
@@ -60,12 +60,10 @@
       }
 
       .painel-busca .actions {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
       }
       .painel-busca .actions button {
-        height: 36px;                /* altura normal */
+        height: 36px;
         background: #0055a5; color: #fff;
         border: none; border-radius: 6px;
         display: inline-flex; align-items: center; justify-content: center;
@@ -85,18 +83,22 @@
         width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; border: 1px solid #888;
       }
 
-      /* Botões flutuantes */
+      /* Botões flutuantes (funcionais) */
       .botao-topo {
-        position: absolute; right: 20px; width: 38px; height: 38px;
+        position: absolute; right: 20px; width: 40px; height: 40px;
         background: #fff; border: 1px solid #ccc; border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0,0,0,.12);
         display: flex; align-items: center; justify-content: center;
-        cursor: pointer; z-index: 1001;
+        cursor: pointer; z-index: 1100;  /* maior que o painel */
       }
+      .botao-topo i { color: #333; }
+      .botao-topo:active { transform: scale(0.98); }
       #togglePainel { top: 20px; }
       #localizacaoUsuario { top: 68px; }
-      #logoutBtn { top: 116px; }
+      /* opcional: forçar clique mesmo sobre o mapa */
+      .botao-topo { pointer-events: auto; }
 
-      /* Widget clima (com z-index alto) */
+      /* Widget clima */
       #widget-clima {
         position: absolute; bottom: 20px; left: 20px;
         background: rgba(255,255,255,0.95); border-radius: 6px;
@@ -120,12 +122,15 @@
     </style>
   </head>
   <body>
-    <!-- Botões -->
-    <div id="togglePainel" class="botao-topo"><i class="fa fa-sliders"></i></div>
-    <div id="localizacaoUsuario" class="botao-topo"><i class="fa fa-location-dot"></i></div>
-    <div id="logoutBtn" class="botao-topo"><i class="fa fa-sign-out-alt"></i></div>
+    <!-- Botões flutuantes -->
+    <div id="togglePainel" class="botao-topo" title="Mostrar/ocultar painel">
+      <i class="fa fa-sliders"></i>
+    </div>
+    <div id="localizacaoUsuario" class="botao-topo" title="Minha localização">
+      <i class="fa fa-location-dot"></i>
+    </div>
 
-    <!-- Painel (campos reduzidos) -->
+    <!-- Painel -->
     <div class="painel-busca" id="painelBusca">
       <h3>Buscar Postes</h3>
 
@@ -182,7 +187,7 @@
       <div class="texto-loading">Carregando postes…</div>
     </div>
 
-    <!-- Scripts (defer para não bloquear o carregamento) -->
+    <!-- Scripts -->
     <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script defer src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
     <script defer src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
@@ -190,7 +195,7 @@
     <script defer src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
     <script defer src="/script.js"></script>
 
-    <!-- Registro do Service Worker -->
+    <!-- Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
