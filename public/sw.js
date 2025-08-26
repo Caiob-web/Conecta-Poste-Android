@@ -1,24 +1,39 @@
 /* ===== Service Worker — versão somente visualização =====
- * Troque os nomes dos caches quando alterar este arquivo.
+ * AUMENTE ESTES NOMES ao alterar o arquivo para forçar atualização.
  */
-const STATIC_CACHE  = 'static-v3';
-const RUNTIME_CACHE = 'runtime-v3';
+const STATIC_CACHE  = 'static-v4';
+const RUNTIME_CACHE = 'runtime-v4';
 const OFFLINE_URL   = '/offline.html';
 
-// Hosts dos tiles do OpenStreetMap (a|b|c.tile.openstreetmap.org)
+/* ----- Tiles do OpenStreetMap ----- */
+// hosts (Leaflet usa a|b|c.tile.openstreetmap.org)
 const TILE_HOSTS = ['tile.openstreetmap.org'];
-const isOSMTile = (url) =>
-  TILE_HOSTS.some(h => url.hostname === h || url.hostname.endsWith('.' + h));
+const isOSMTile = (url) => TILE_HOSTS.some(h => url.hostname === h || url.hostname.endsWith('.' + h));
+// limite simples para não deixar o cache de tiles crescer sem fim
+const TILE_CACHE_LIMIT = 800; // ajuste se quiser (≈ várias áreas vistas)
+
+/* Utilitário: enxuga cache (remove mais antigos) */
+async function trimCache(cacheName, maxEntries) {
+  try {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    if (keys.length <= maxEntries) return;
+    const excess = keys.length - maxEntries;
+    for (let i = 0; i < excess; i++) {
+      await cache.delete(keys[i]);
+    }
+  } catch (_) {}
+}
 
 /* ============ INSTALL ============ */
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(STATIC_CACHE);
     await cache.addAll([
-      '/',                // se for SPA, mantém
-      OFFLINE_URL,        // página offline
-      '/manifest.json',   // opcional, mas comum em PWA
-      '/favicon.ico',     // opcional
+      '/',               // se app for SPA; se não, mantenha mesmo assim
+      OFFLINE_URL,
+      '/manifest.json',
+      '/favicon.ico',
     ]);
     await self.skipWaiting();
   })());
@@ -35,7 +50,7 @@ self.addEventListener('activate', (event) => {
         .map((k) => caches.delete(k))
     );
 
-    // habilita navigation preload (melhora 3G/4G)
+    // navigation preload acelera primeira navegação
     if ('navigationPreload' in self.registration) {
       try { await self.registration.navigationPreload.enable(); } catch {}
     }
@@ -57,26 +72,28 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
 
-  // 1) NÃO interceptar API (rede direta sempre)
+  // 0) NÃO interceptar API (rede direta sempre)
   if (sameOrigin && url.pathname.startsWith('/api/')) {
     return; // network-only
   }
 
-  // 1.1) Tiles do OSM: cache-first, sem fallback para HTML
+  // 1) Tiles do OSM: cache-first (sem fallback HTML)
   if (req.destination === 'image' && isOSMTile(url)) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
       const cached = await caches.match(req);
       if (cached) return cached;
       try {
-        const net = await fetch(req, { mode: 'no-cors' }); // tiles costumam ser opaque
-        if (net && (net.ok || net.type === 'opaque')) {
+        // tiles muitas vezes retornam opaque; tudo bem para cache
+        const net = await fetch(req, { mode: 'no-cors' });
+        if (net) {
           cache.put(req, net.clone());
+          // dá uma “enxugada” de vez em quando
+          trimCache(RUNTIME_CACHE, TILE_CACHE_LIMIT);
         }
-        return net;
+        return net || new Response('', { status: 204 });
       } catch {
-        // sem tile → devolve vazio (mapa fica “cinza”, mas o app não quebra)
-        return new Response('', { status: 204 });
+        return new Response('', { status: 204 }); // sem tile → responde vazio
       }
     })());
     return;
@@ -114,12 +131,9 @@ self.addEventListener('fetch', (event) => {
         if (net && net.ok) cache.put(req, net.clone());
         return net;
       }).catch(() => null);
-      // para assets, evitar servir offline.html para não dar MIME mismatch
-      const netOrNull = await update;
       if (cached) return cached;
-      if (netOrNull) return netOrNull;
-      // último recurso: retorna resposta vazia
-      return new Response('', { status: 204 });
+      const net = await update;
+      return net || new Response('', { status: 204 });
     })());
     return;
   }
