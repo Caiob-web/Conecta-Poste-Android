@@ -1,35 +1,62 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Você está offline</title>
-  <meta name="theme-color" content="#0055a5">
   <style>
-    :root{--bg:#f7fafc;--fg:#1f2937;--card:#ffffff;--muted:#6b7280;--primary:#0055a5}
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--fg);display:grid;place-items:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .card{background:var(--card);padding:28px 22px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.08);max-width:520px;width:calc(100% - 32px);text-align:center}
-    .icon{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;margin:0 auto 12px;background:#e8f1fb;color:var(--primary);font-size:28px}
-    h1{font-size:22px;margin:8px 0 6px}
-    p{margin:6px 0}
-    .tips{margin-top:10px;color:var(--muted);font-size:14px}
-    .btns{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
-    .btn{padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
-    .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+    :root { color-scheme: light dark; }
+    html, body {
+      height: 100%; margin: 0; padding: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: #f6f8fb;
+    }
+    .wrap {
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      max-width: 460px; width: 100%;
+      background: #fff;
+      border: 1px solid rgba(0,0,0,.08);
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.06);
+      padding: 22px 20px;
+      text-align: center;
+    }
+    h1 {
+      margin: 8px 0 6px;
+      font-size: 20px; color: #0b5bd3;
+    }
+    p {
+      margin: 8px 0; color: #333; line-height: 1.45;
+    }
+    .hint {
+      margin-top: 10px; font-size: 13px; color: #666;
+    }
+    .btn {
+      margin-top: 14px;
+      display: inline-block;
+      background: #0b5bd3; color: #fff;
+      text-decoration: none; border: none; border-radius: 8px;
+      padding: 10px 14px; font-weight: 600;
+    }
   </style>
 </head>
 <body>
-  <main class="card" role="main" aria-labelledby="ttl">
-    <div class="icon" aria-hidden="true">⌁</div>
-    <h1 id="ttl">Sem conexão com a internet</h1>
-    <p>Você pode ver tiles e dados que já foram abertos anteriormente.</p>
-    <p>Conecte-se para carregar novas áreas do mapa e atualizar os postes.</p>
-    <div class="btns">
-      <button class="btn primary" onclick="location.reload()">Tentar novamente</button>
-      <button class="btn" onclick="history.back()">Voltar</button>
+  <div class="wrap">
+    <div class="card">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M2 8c5.333-5.333 14.667-5.333 20 0M5 11c3.556-3.556 9.444-3.556 13 0M8 14c1.778-1.778 4.222-1.778 6 0" stroke="#0b5bd3" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="12" cy="18" r="2" fill="#0b5bd3"/>
+      </svg>
+      <h1>Sem conexão</h1>
+      <p>Não foi possível carregar esta página agora.</p>
+      <p class="hint">Verifique sua internet e tente novamente.</p>
+      <button class="btn" onclick="location.reload()">Tentar novamente</button>
     </div>
-    <p class="tips">Versão somente visualização • funciona offline com conteúdo já em cache</p>
-  </main>
+  </div>
 </body>
 </html>
