@@ -48,14 +48,20 @@ function hideOverlay() {
 }
 
 /* ---------------------- Helpers ---------------------- */
+// Envia ambos formatos de bounds para compatibilidade com o backend
 function buildBBoxQS() {
   const b = map.getBounds();
-  return new URLSearchParams({
+  const params = new URLSearchParams({
+    south: b.getSouth(),
+    north: b.getNorth(),
+    west: b.getWest(),
+    east: b.getEast(),
     minLat: b.getSouth(),
     maxLat: b.getNorth(),
     minLng: b.getWest(),
     maxLng: b.getEast(),
   });
+  return params;
 }
 async function fetchJsonGuard(url) {
   const ctrl = new AbortController();
@@ -119,14 +125,10 @@ function makeMarkerForPoste(p) {
   }).bindPopup(`
       <b>ID:</b> ${escHTML(p.id ?? "")}<br>
       <b>Coord:</b> ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}<br>
-      <b>Município:</b> ${escHTML(p.nome_municipio ?? "")}<br>
-      <b>Bairro:</b> ${escHTML(p.nome_bairro ?? "")}<br>
-      <b>Logradouro:</b> ${escHTML(p.nome_logradouro ?? "")}<br>
-      <b>Material:</b> ${escHTML(p.material ?? "")}<br>
-      <b>Altura:</b> ${escHTML(p.altura ?? "")}<br>
-      <b>Tensão:</b> ${escHTML(p.tensao_mecanica ?? "")}<br>
-      <b>Empresas (${qtd}):</b>
-      ${empresasComoLista(p.empresas)}
+      <b>Município:</b> ${escHTML(p.nome_municipio ?? p.municipio ?? "")}<br>
+      <b>Bairro:</b> ${escHTML(p.nome_bairro ?? p.bairro ?? "")}<br>
+      <b>Logradouro:</b> ${escHTML(p.nome_logradouro ?? p.logradouro ?? "")}<br>
+      <b>Empresas:</b> ${qtd || "—"}
     `);
   return marker;
 }
@@ -160,7 +162,7 @@ async function loadVisible() {
 
   if (map.getZoom() < ZOOM_MIN) {
     markers.clearLayers();
-    hideOverlay(); // sem mensagem travando
+    hideOverlay();
     return;
   }
 
@@ -197,7 +199,7 @@ async function loadVisible() {
     if (!firstLoadDone) {
       firstLoadDone = true;
       hideOverlay();
-      initClockAndWeather(); // agora seguro
+      initClockAndWeather();
     }
   } catch (e) {
     console.error("Erro ao carregar BBOX:", e);
@@ -211,7 +213,7 @@ async function loadVisible() {
 let moveendTimer = null;
 map.on("moveend", () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS); });
 map.on("zoomend",  () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS); });
-map.whenReady(() => { loadVisible(); initClockAndWeather(); }); // init moveu variáveis para dentro
+map.whenReady(() => { loadVisible(); initClockAndWeather(); });
 
 /* ---------------------- Painel: somente Buscar ID ---------------------- */
 function toast(msg) {
@@ -226,7 +228,7 @@ function toast(msg) {
   setTimeout(() => el.remove(), 1800);
 }
 
-/* ===== CORREÇÃO: buscarID envia bounds globais junto com o ID ===== */
+// Busca por ID — agora sem enviar bounds
 async function buscarID() {
   const campo = document.getElementById("campoID");
   const id = campo?.value?.trim();
@@ -237,28 +239,18 @@ async function buscarID() {
     return;
   }
 
-  // Cancela carregamentos BBOX em andamento
-  ++lastToken;
+  ++lastToken; // cancela BBOX em andamento
 
   try {
     setLoading(true, "Buscando poste…");
 
-    // A API exige bounds; usamos bounds globais + limit=1
-    const qs = new URLSearchParams({
-      minLat: "-90",
-      maxLat: "90",
-      minLng: "-180",
-      maxLng: "180",
-      page: "1",
-      limit: "1",
-      id: id
-    });
-
+    const qs = new URLSearchParams({ id, limit: "5" });
     const payload = await fetchJsonGuard(`/api/postes?${qs.toString()}`);
+
     const itemsRaw = Array.isArray(payload?.data) ? payload.data
                     : (Array.isArray(payload) ? payload
                     : (payload ? [payload] : []));
-    // Garante match exato por ID, se o backend não filtrar
+    // Garante match exato
     const items = itemsRaw.filter(p => String(p?.id ?? "") === String(id));
 
     if (!items.length) {
@@ -267,15 +259,9 @@ async function buscarID() {
     }
 
     markers.clearLayers();
-
-    const layers = [];
-    for (const p of items) {
-      const m = makeMarkerForPoste(p);
-      if (m) layers.push(m);
-    }
+    const layers = items.map(makeMarkerForPoste).filter(Boolean);
     if (layers.length) {
       markers.addLayers(layers);
-
       const ll = parseLatLng(items[0]);
       if (ll) {
         map.setView(ll, Math.max(map.getZoom(), 18));
@@ -290,6 +276,10 @@ async function buscarID() {
           }
         });
       }
+      if (layers.length > 1) {
+        const g = L.featureGroup(layers);
+        map.fitBounds(g.getBounds().pad(0.2));
+      }
     }
   } catch (e) {
     console.error(e);
@@ -299,10 +289,8 @@ async function buscarID() {
   }
 }
 
-// Expor para o HTML e suportar clique/Enter
-function resetarMapa(){ map.setView([-23.2237, -45.9009], 13); }
-Object.assign(window,{ buscarID, resetarMapa });
-
+// Expor para o HTML e suportar Enter
+Object.assign(window,{ buscarID });
 document.getElementById("campoID")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") buscarID();
 });
@@ -354,12 +342,11 @@ document.getElementById("localizacaoUsuario")?.addEventListener("click", (e) => 
   }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 });
 
-/* ---------------------- Relógio + Clima + Cidade (SEM TDZ) ---------------------- */
+/* ---------------------- Relógio + Clima + Cidade ---------------------- */
 function initClockAndWeather() {
   if (widgetStarted) return;
   widgetStarted = true;
 
-  // Seletores dentro da função (evita TDZ)
   const horaDiv  = document.querySelector("#widget-clima #hora");
   const horaSpan = document.querySelector("#widget-clima #hora span");
   let dataSmall  = document.querySelector("#widget-clima #hora small");
@@ -448,7 +435,6 @@ function initClockAndWeather() {
     }
   }
 
-  // iniciar
   startClock();
   const c = map.getCenter();
   refreshWeather(c.lat, c.lng);
