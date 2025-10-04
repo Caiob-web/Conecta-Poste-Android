@@ -226,7 +226,7 @@ function toast(msg) {
   setTimeout(() => el.remove(), 1800);
 }
 
-// Buscar por ID (única função de busca mantida)
+/* ===== CORREÇÃO: buscarID envia bounds globais junto com o ID ===== */
 async function buscarID() {
   const campo = document.getElementById("campoID");
   const id = campo?.value?.trim();
@@ -237,25 +237,35 @@ async function buscarID() {
     return;
   }
 
-  // cancela carregamentos BBOX em andamento
+  // Cancela carregamentos BBOX em andamento
   ++lastToken;
 
   try {
     setLoading(true, "Buscando poste…");
 
-    const qs = new URLSearchParams({ id });
+    // A API exige bounds; usamos bounds globais + limit=1
+    const qs = new URLSearchParams({
+      minLat: "-90",
+      maxLat: "90",
+      minLng: "-180",
+      maxLng: "180",
+      page: "1",
+      limit: "1",
+      id: id
+    });
+
     const payload = await fetchJsonGuard(`/api/postes?${qs.toString()}`);
     const itemsRaw = Array.isArray(payload?.data) ? payload.data
                     : (Array.isArray(payload) ? payload
                     : (payload ? [payload] : []));
-    const items = itemsRaw.filter(Boolean);
+    // Garante match exato por ID, se o backend não filtrar
+    const items = itemsRaw.filter(p => String(p?.id ?? "") === String(id));
 
     if (!items.length) {
       toast("Poste não encontrado.");
       return;
     }
 
-    // desenha somente o(s) resultado(s) da busca
     markers.clearLayers();
 
     const layers = [];
@@ -266,9 +276,7 @@ async function buscarID() {
     if (layers.length) {
       markers.addLayers(layers);
 
-      // centraliza/abre popup do primeiro
-      const first = items[0];
-      const ll = parseLatLng(first);
+      const ll = parseLatLng(items[0]);
       if (ll) {
         map.setView(ll, Math.max(map.getZoom(), 18));
         let opened = false;
@@ -281,12 +289,6 @@ async function buscarID() {
             }
           }
         });
-      }
-
-      // se houver mais de um, ajusta para ver todos
-      if (layers.length > 1) {
-        const g = L.featureGroup(layers);
-        map.fitBounds(g.getBounds().pad(0.2));
       }
     }
   } catch (e) {
