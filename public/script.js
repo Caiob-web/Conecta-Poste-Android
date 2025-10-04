@@ -243,9 +243,11 @@ async function buscarID() {
   try {
     setLoading(true, "Buscando poste…");
 
-    const qs = new URLSearchParams({ id: id });
+    const qs = new URLSearchParams({ id });
     const payload = await fetchJsonGuard(`/api/postes?${qs.toString()}`);
-    const itemsRaw = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : (payload ? [payload] : []));
+    const itemsRaw = Array.isArray(payload?.data) ? payload.data
+                    : (Array.isArray(payload) ? payload
+                    : (payload ? [payload] : []));
     const items = itemsRaw.filter(Boolean);
 
     if (!items.length) {
@@ -269,7 +271,6 @@ async function buscarID() {
       const ll = parseLatLng(first);
       if (ll) {
         map.setView(ll, Math.max(map.getZoom(), 18));
-        // tenta abrir popup do marker correspondente
         let opened = false;
         markers.eachLayer((ly) => {
           if (!opened && ly.getLatLng) {
@@ -296,11 +297,10 @@ async function buscarID() {
   }
 }
 
-// deixar no escopo global para onclick do HTML (se usado)
+// Expor para o HTML e suportar clique/Enter
 function resetarMapa(){ map.setView([-23.2237, -45.9009], 13); }
 Object.assign(window,{ buscarID, resetarMapa });
 
-// Suporte a Enter no campo e clique no botão (se existirem)
 document.getElementById("campoID")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") buscarID();
 });
@@ -432,7 +432,7 @@ function initClockAndWeather() {
   async function refreshWeather(lat, lon){
     try{
       const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&timezone=auto`;
-    const data=await fetchJsonGuard(url);
+      const data=await fetchJsonGuard(url);
       const c=data?.current; if(!c) throw new Error("Sem dados de clima");
       const desc=wxDesc(c.weather_code);
       const temp=Math.round(c.temperature_2m);
