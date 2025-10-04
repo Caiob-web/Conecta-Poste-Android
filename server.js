@@ -16,33 +16,56 @@ app.get("/", (req, res) => {
   res.send("API de Postes rodando 🚀");
 });
 
+/** Util: busca por uma lista de IDs (texto) */
+async function queryByIds(idList, limit = 50) {
+  const ids = Array.from(new Set(
+    (idList || []).map((s) => String(s ?? "").trim()).filter(Boolean)
+  ));
+  const max = Math.min(parseInt(limit) || 50, 1000);
+
+  if (ids.length === 0) return { rows: [], rowCount: 0 };
+
+  const sql = `
+    SELECT id, municipio, bairro, logradouro, latitude, longitude
+    FROM dados_poste
+    WHERE CAST(id AS TEXT) = ANY ($1::text[])
+    LIMIT $2
+  `;
+  const r = await pool.query(sql, [ids, max]);
+  return r;
+}
+
+/** GET /api/postes/:id  -> busca por ID sem bounds */
+app.get("/api/postes/:id", async (req, res) => {
+  try {
+    const r = await queryByIds([req.params.id], req.query.limit);
+    res.json({ data: r.rows, total: r.rowCount });
+  } catch (err) {
+    console.error("Erro no /api/postes/:id:", err);
+    res.status(500).json({ error: "Erro ao buscar poste por ID" });
+  }
+});
+
 /**
  * GET /api/postes
- * - Se vier ?id=123  -> busca direta por ID (não precisa bounds)
- * - Caso contrário   -> busca por BBOX
- *   Aceita bounds em dois formatos:
- *     (north,south,east,west) OU (minLat,maxLat,minLng,maxLng)
+ * - Se tiver id ou ids: busca por ID(s) (sem bounds)
+ * - Senão: busca por BBOX (aceita north/south/east/west OU minLat/maxLat/minLng/maxLng)
  */
 app.get("/api/postes", async (req, res) => {
   try {
-    const { id } = req.query;
-    const max = Math.min(parseInt(req.query.limit) || 5000, 50000);
+    const { id, ids, limit } = req.query;
 
-    // --- Busca por ID (sem bounds) ---
-    if (id != null) {
-      const q = `
-        SELECT id, municipio, bairro, logradouro, latitude, longitude
-        FROM dados_poste
-        WHERE CAST(id AS TEXT) = $1
-        LIMIT $2
-      `;
-      const r = await pool.query(q, [String(id), max]);
+    // ---- Busca por ID(s) sem bounds ----
+    if (id != null || ids != null) {
+      const list = [];
+      if (id != null) list.push(String(id));
+      if (ids != null) list.push(...String(ids).split(","));
+      const r = await queryByIds(list, limit);
       return res.json({ data: r.rows, total: r.rowCount });
     }
 
-    // --- Bounds (aceita dois formatos de nomes) ---
+    // ---- BBOX ----
     let { north, south, east, west, minLat, maxLat, minLng, maxLng } = req.query;
-
     if (north == null && maxLat != null) north = maxLat;
     if (south == null && minLat != null) south = minLat;
     if (east  == null && maxLng != null) east  = maxLng;
@@ -57,15 +80,23 @@ app.get("/api/postes", async (req, res) => {
       return res.status(400).json({ error: "Bounds devem ser números" });
     }
 
-    const q = `
+    // (opcional) limitar área máxima para proteger o DB
+    const area = Math.abs((n - s) * (e - w));
+    const MAX_AREA = 50; // latitude*longitude (~bem grande). Ajuste se quiser restringir.
+    if (area > MAX_AREA) {
+      return res.status(400).json({ error: "Área muito grande. Aproxime o zoom." });
+    }
+
+    const max = Math.min(parseInt(limit) || 5000, 50000);
+    const query = `
       SELECT id, municipio, bairro, logradouro, latitude, longitude
       FROM dados_poste
       WHERE latitude BETWEEN $1 AND $2
         AND longitude BETWEEN $3 AND $4
       LIMIT $5
     `;
-    const r = await pool.query(q, [s, n, w, e, max]);
-    return res.json({ data: r.rows, total: r.rowCount });
+    const result = await pool.query(query, [s, n, w, e, max]);
+    res.json({ data: result.rows, total: result.rowCount });
   } catch (err) {
     console.error("Erro no /api/postes:", err);
     res.status(500).json({ error: "Erro ao buscar postes" });
