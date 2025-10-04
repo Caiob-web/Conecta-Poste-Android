@@ -104,20 +104,19 @@ function corPorEmpresas(qtd) {
   return "green";
 }
 
-/* ---------------------- Render em lotes ---------------------- */
-function addBatch(items, start = 0, batch = 1200) {
-  const end = Math.min(start + batch, items.length);
-  const toAdd = [];
+/* ---------------------- Criação de marker ---------------------- */
+function makeMarkerForPoste(p) {
+  const ll = parseLatLng(p);
+  if (!ll) return null;
 
-  for (let i = start; i < end; i++) {
-    const p = items[i];
-    const ll = parseLatLng(p);
-    if (!ll) continue;
-
-    const qtd = Number(p.qtd_empresas ?? 0);
-    const marker = L.circleMarker(ll, {
-      radius: 6, fillColor: corPorEmpresas(qtd), color: "#fff", weight: 2, fillOpacity: 0.9,
-    }).bindPopup(`
+  const qtd = Number(p.qtd_empresas ?? 0);
+  const marker = L.circleMarker(ll, {
+    radius: 6,
+    fillColor: corPorEmpresas(qtd),
+    color: "#fff",
+    weight: 2,
+    fillOpacity: 0.9,
+  }).bindPopup(`
       <b>ID:</b> ${escHTML(p.id ?? "")}<br>
       <b>Coord:</b> ${ll[0].toFixed(6)}, ${ll[1].toFixed(6)}<br>
       <b>Município:</b> ${escHTML(p.nome_municipio ?? "")}<br>
@@ -129,7 +128,18 @@ function addBatch(items, start = 0, batch = 1200) {
       <b>Empresas (${qtd}):</b>
       ${empresasComoLista(p.empresas)}
     `);
-    toAdd.push(marker);
+  return marker;
+}
+
+/* ---------------------- Render em lotes ---------------------- */
+function addBatch(items, start = 0, batch = 1200) {
+  const end = Math.min(start + batch, items.length);
+  const toAdd = [];
+
+  for (let i = start; i < end; i++) {
+    const p = items[i];
+    const marker = makeMarkerForPoste(p);
+    if (marker) toAdd.push(marker);
   }
 
   if (toAdd.length) markers.addLayers(toAdd);
@@ -203,7 +213,7 @@ map.on("moveend", () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(
 map.on("zoomend",  () => { clearTimeout(moveendTimer); moveendTimer = setTimeout(loadVisible, DEBOUNCE_MS); });
 map.whenReady(() => { loadVisible(); initClockAndWeather(); }); // init moveu variáveis para dentro
 
-/* ---------------------- Stubs do painel ---------------------- */
+/* ---------------------- Painel: somente Buscar ID ---------------------- */
 function toast(msg) {
   const el = document.createElement("div");
   el.textContent = msg;
@@ -215,13 +225,89 @@ function toast(msg) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1800);
 }
-function buscarID(){ toast("Função indisponível nesta versão (visualização)."); }
-function buscarCoordenada(){ toast("Função indisponível nesta versão (visualização)."); }
-function filtrarLocal(){ toast("Função indisponível nesta versão (visualização)."); }
-function consultarIDsEmMassa(){ toast("Função indisponível nesta versão (visualização)."); }
+
+// Buscar por ID (única função de busca mantida)
+async function buscarID() {
+  const campo = document.getElementById("campoID");
+  const id = campo?.value?.trim();
+
+  if (!id) {
+    toast("Digite um ID válido.");
+    campo?.focus();
+    return;
+  }
+
+  // cancela carregamentos BBOX em andamento
+  ++lastToken;
+
+  try {
+    setLoading(true, "Buscando poste…");
+
+    const qs = new URLSearchParams({ id: id });
+    const payload = await fetchJsonGuard(`/api/postes?${qs.toString()}`);
+    const itemsRaw = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : (payload ? [payload] : []));
+    const items = itemsRaw.filter(Boolean);
+
+    if (!items.length) {
+      toast("Poste não encontrado.");
+      return;
+    }
+
+    // desenha somente o(s) resultado(s) da busca
+    markers.clearLayers();
+
+    const layers = [];
+    for (const p of items) {
+      const m = makeMarkerForPoste(p);
+      if (m) layers.push(m);
+    }
+    if (layers.length) {
+      markers.addLayers(layers);
+
+      // centraliza/abre popup do primeiro
+      const first = items[0];
+      const ll = parseLatLng(first);
+      if (ll) {
+        map.setView(ll, Math.max(map.getZoom(), 18));
+        // tenta abrir popup do marker correspondente
+        let opened = false;
+        markers.eachLayer((ly) => {
+          if (!opened && ly.getLatLng) {
+            const { lat, lng } = ly.getLatLng();
+            if (Math.abs(lat - ll[0]) < 1e-7 && Math.abs(lng - ll[1]) < 1e-7) {
+              ly.openPopup();
+              opened = true;
+            }
+          }
+        });
+      }
+
+      // se houver mais de um, ajusta para ver todos
+      if (layers.length > 1) {
+        const g = L.featureGroup(layers);
+        map.fitBounds(g.getBounds().pad(0.2));
+      }
+    }
+  } catch (e) {
+    console.error(e);
+    toast("Erro ao buscar poste.");
+  } finally {
+    hideOverlay();
+  }
+}
+
+// deixar no escopo global para onclick do HTML (se usado)
 function resetarMapa(){ map.setView([-23.2237, -45.9009], 13); }
-function gerarPDFComMapa(){ toast("Função indisponível nesta versão (visualização)."); }
-Object.assign(window,{buscarID,buscarCoordenada,filtrarLocal,consultarIDsEmMassa,resetarMapa,gerarPDFComMapa});
+Object.assign(window,{ buscarID, resetarMapa });
+
+// Suporte a Enter no campo e clique no botão (se existirem)
+document.getElementById("campoID")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") buscarID();
+});
+document.getElementById("btnBuscarID")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  buscarID();
+});
 
 /* ---------------------- Botões flutuantes ---------------------- */
 document.getElementById("togglePainel")?.addEventListener("click", (e) => {
@@ -346,7 +432,7 @@ function initClockAndWeather() {
   async function refreshWeather(lat, lon){
     try{
       const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&timezone=auto`;
-      const data=await fetchJsonGuard(url);
+    const data=await fetchJsonGuard(url);
       const c=data?.current; if(!c) throw new Error("Sem dados de clima");
       const desc=wxDesc(c.weather_code);
       const temp=Math.round(c.temperature_2m);
